@@ -2,10 +2,6 @@
 
 # Shinigami Shell
 
-<img src="docs/screenshots/shinigami-hikiryo-landing.png"
-     alt="Hikiryō artwork from Shibumi Shell"
-     width="100%">
-
 <h3>A native bar and plugin suite for Omarchy Quattro</h3>
 
 <p>27 plugins for Omarchy's existing Quickshell process, with V1 and V2 bar
