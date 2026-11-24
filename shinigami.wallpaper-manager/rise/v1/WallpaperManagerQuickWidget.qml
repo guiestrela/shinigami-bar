@@ -10,7 +10,7 @@ Item {
     visible: control.root.modWallpapers
     implicitWidth: control.root.modWallpapers ? 38 : 0
     implicitHeight: 28
-    readonly property string tooltipText: "Wallpaper manager · click to open · middle-click for next on all displays"
+    readonly property string tooltipText: "Wallpaper manager · click to open · middle-click for next on all displays · right-click for settings"
     function handleButton(button) { return WallpaperManagerQuickWidgetLogic.handleButton(control, {tip: tip, Qt: Qt}, button) }
 
     Rectangle {
@@ -35,7 +35,7 @@ Item {
         id: clickArea
         anchors.fill: parent
         hoverEnabled: true
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
         cursorShape: Qt.PointingHandCursor
         onEntered: tip.show()
         onExited: tip.hide()

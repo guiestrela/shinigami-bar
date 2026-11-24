@@ -2758,8 +2758,8 @@ Item {
     return summonBarWidget("shinigami.control-center")
   }
 
-  function openConfigPage(page) {
-    const widget = findPanelWidget("shinigami.control-center")
+  function openConfigPage(page, screenName) {
+    const widget = findPanelWidget("shinigami.control-center", screenName)
     return widget && typeof widget.openPage === "function"
       ? widget.openPage(String(page || "")) : false
   }

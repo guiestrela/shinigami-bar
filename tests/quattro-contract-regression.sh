@@ -170,7 +170,10 @@ for key, expression in re.findall(r'readonly property string (\w+): ([^\n]+)', c
     values[key] = "".join(json.loads(p) if p.startswith('"') else values[p] for p in parts)
 services = json.loads(re.search(r'firstPartyServices:\s*(\[[^\]]+\])', contract)[1])
 targets = re.findall(r'"([^"]+)"', re.search(r'ipcTargets:\s*\(\{(.*?)\}\)', contract, re.S)[1])
-assert len(services) == 3 and len(targets) == 4, "incomplete HostContract identities"
+assert set(services) == {
+    "omarchy.idle", "omarchy.media", "omarchy.nightlight", "omarchy.notifications",
+    "omarchy.remote-session",
+} and len(services) == 5 and len(targets) == 4, "incomplete HostContract identities"
 ids = {json.loads(p.read_text()).get("id") for p in (native / "shell/plugins").rglob("*manifest.json")}
 assert set(services) <= ids, f"host first-party IDs missing: {set(services) - ids}"
 qml = "\n".join(p.read_text() for p in sorted((native / "shell").rglob("*.qml")))

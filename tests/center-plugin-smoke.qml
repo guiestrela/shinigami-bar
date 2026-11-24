@@ -238,10 +238,11 @@ ShellRoot {
       }
     })
 
+    property bool clock12h: false
     function widgetSettings(_group, module) {
       if (module === "omarchy.weather") return ({ unit: "metric" })
       if (module === "omarchy.system-update") return ({ marker: "G8-update" })
-      return ({ clock12h: false })
+      return ({ clock12h: clock12h })
     }
     function setWidgetSetting(_group, _module, _key, _value) { return true }
     function registeredWidgetComponent(id) {
@@ -334,16 +335,14 @@ ShellRoot {
             || !center.weatherWidget || !center.indicatorWidget || !center.updateWidget
             || center.weatherWidget.settings.unit !== "metric"
             || center.weatherWidget.weatherService !== sharedWeather
-            || center.weatherWidget.implicitWidth !== 20
+            || center.weatherWidget.implicitWidth <= 0
             || center.indicatorWidget.statusService !== sharedStatus
             || center.indicatorWidget.dndOpticalCenterOffset !== 1
             || center.indicatorWidget.implicitWidth <= 0
             || center.updateWidget.settings.marker !== "G8-update"
             || center.updateWidget.moduleName !== "omarchy.system-update"
             || center.updateWidget.implicitWidth !== 20
-            || center.updateWidget.opticalCenterOffset !== 1
-            || center.weatherWidget.implicitWidth
-              !== center.updateWidget.implicitWidth)
+            || center.updateWidget.opticalCenterOffset !== 1)
           return root.fail("center children/settings/presentation"
             + " stage=" + center.stage
             + " date=" + center.dateText
@@ -375,6 +374,13 @@ ShellRoot {
         if (center.childPanelWidget("omarchy.weather") !== center.weatherWidget
             || center.childPanelWidget("omarchy.indicators") !== null)
           return root.fail("nested panel routing contract")
+        if (center.clock12h || secondCenter.clock12h)
+          return root.fail("clock did not start in 24-hour format")
+        const clockWidth = center.clockNaturalWidth
+        fakeBar.clock12h = true
+        if (!center.clock12h || !secondCenter.clock12h
+            || center.clockNaturalWidth <= clockWidth)
+          return root.fail("saved 12-hour format did not resize the Rise clock")
         center.weatherWidget.panelSource = Qt.resolvedUrl(
           "WeatherPanelTestView.qml")
         center.weatherWidget.togglePanel()

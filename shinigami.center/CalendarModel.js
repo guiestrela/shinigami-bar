@@ -32,6 +32,31 @@ function dateLabel(value) {
   return days[date.getDay()] + " " + date.getDate()
 }
 
+function dayKey(date) {
+  return Qt.formatDate(date, "yyyy-MM-dd")
+}
+
+function eventDay(value) {
+  if (typeof value !== "string") return ""
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = new Date(value)
+  return validDate(date) ? dayKey(date) : ""
+}
+
+function eventsOn(events, day) {
+  return events.filter(function(event) {
+    const start = eventDay(event.start)
+    if (!start || day < start) return false
+    if (day === start) return true
+    const end = eventDay(event.end)
+    const endTime = new Date(event.end)
+    const exclusiveEnd = event.all_day || (validDate(endTime)
+      && endTime.getHours() === 0 && endTime.getMinutes() === 0
+      && endTime.getSeconds() === 0 && endTime.getMilliseconds() === 0)
+    return exclusiveEnd ? day < end : day <= end
+  })
+}
+
 function cells(value, offset) {
   var today = normalizedDate(value)
   var first = monthDate(today, offset)

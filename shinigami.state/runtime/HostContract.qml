@@ -5,7 +5,10 @@ import QtQuick
 // Revision-bound host identifiers only; no runtime authority or workers.
 QtObject {
   id: contract
-  readonly property var firstPartyServices: ["omarchy.idle", "omarchy.media", "omarchy.notifications"]
+  readonly property var firstPartyServices: [
+    "omarchy.idle", "omarchy.media", "omarchy.nightlight", "omarchy.notifications",
+    "omarchy.remote-session"
+  ]
   readonly property string stateRoot: ".local/state/omarchy"
   readonly property string togglesDir: stateRoot + "/toggles"
   readonly property string barOffMarker: togglesDir + "/bar-off"

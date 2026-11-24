@@ -246,6 +246,8 @@ ShellRoot {
           return root.fail("visual bar leases or click targets")
 
         scopedBackend.open()
+        if (scopedBackend.opened)
+          return root.fail("stock display panel stayed open after IPC redirect")
         root.teardownLease = teardownServiceLoader.item.acquireVisualBar(
           teardownLeaseHolder, fakeBar)
         if (!root.teardownLease) return root.fail("teardown lease acquisition")

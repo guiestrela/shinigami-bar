@@ -68,6 +68,7 @@ REQUIRED_CAPABILITIES = {
     "omarchy-update-action",
     "ai-usage",
     "weather",
+    "calendar-agenda",
     "recording-voxtype",
     "quick-access",
     "theme-background-selection",

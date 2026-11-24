@@ -90,6 +90,7 @@ Item {
     }
     oneDriveOverlayLoader.setSource(Qt.resolvedUrl("OneDriveOverlay.qml"), {
       host: Qt.binding(function() { return root }),
+      anchorItem: oneDriveWidget,
       riseRoot: Qt.binding(function() { return root.oneDriveRoot }),
       oneDriveService: Qt.binding(function() { return root.oneDriveService })
     })

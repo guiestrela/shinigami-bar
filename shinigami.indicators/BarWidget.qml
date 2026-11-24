@@ -58,13 +58,28 @@ Item {
     readonly property bool silenced: !!widgetRoot.statusService && widgetRoot.statusService.notificationsSilenced
     readonly property bool awake: !!widgetRoot.statusService && widgetRoot.statusService.stayAwake
     readonly property bool voxtype: !!widgetRoot.statusService && widgetRoot.statusService.voxtypeActive
-    readonly property bool hasActive: recording || silenced || awake || voxtype
+    readonly property bool voxtypeAvailable: !!widgetRoot.statusService && widgetRoot.statusService.voxtypeAvailable === true
+    readonly property bool nightLight: !!widgetRoot.statusService && widgetRoot.statusService.nightLightActive === true
+    readonly property bool nightLightAvailable: !!widgetRoot.statusService && !!widgetRoot.statusService.nightLightService
+    readonly property bool remote: !!widgetRoot.statusService && widgetRoot.statusService.remoteSessionActive === true
+    readonly property string remoteLabel: remote && widgetRoot.statusService.remoteSessionPeers.length
+      ? "Remote session: " + widgetRoot.statusService.remoteSessionPeers.join(", ") : "Remote session"
+    readonly property bool passwordless: !!widgetRoot.statusService && widgetRoot.statusService.passwordlessSudo === true
+    readonly property bool passwordlessAvailable: !!widgetRoot.statusService && widgetRoot.statusService.passwordlessSudoAvailable === true
+    readonly property bool reminders: !!widgetRoot.statusService && widgetRoot.statusService.reminderCount > 0
+    readonly property bool remindersAvailable: !!widgetRoot.statusService && widgetRoot.statusService.remindersAvailable === true
+    readonly property string reminderLabel: reminders ? widgetRoot.statusService.reminderTooltip : "Set a reminder"
+    readonly property bool hasActive: recording || silenced || awake || voxtype || nightLight || remote
+      || passwordless || reminders
 
     function activate(id, button) {
       const service = widgetRoot.statusService
       if (!service) return false
       switch (id) {
-        case "ScreenRecording": return service.stopRecording()
+        case "ScreenRecording": return recording ? service.stopRecording() : service.openRecordingMenu()
+        case "NightLight": return service.toggleNightLight()
+        case "Reminder": return service.openReminder()
+        case "PasswordlessSudo": return service.openPasswordlessSudo()
         case "Dnd": return service.toggleNotifications()
         case "StayAwake": return service.toggleStayAwake()
         case "Voxtype": return button === Qt.RightButton

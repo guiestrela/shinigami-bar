@@ -46,6 +46,18 @@ QtObject {
       return
     }
 
+    const allDay = { start: "2026-07-16", end: "2026-07-18", all_day: true }
+    const overnight = { start: "2026-07-16T23:00:00", end: "2026-07-17T00:00:00" }
+    const timed = { start: "2026-07-16T21:00:00", end: "2026-07-17T01:00:00" }
+    const events = [allDay, overnight, timed]
+    if (CalendarModel.dayKey(date) !== "2026-07-16"
+        || CalendarModel.eventsOn(events, "2026-07-16").length !== 3
+        || CalendarModel.eventsOn(events, "2026-07-17").length !== 2
+        || CalendarModel.eventsOn(events, "2026-07-18").length !== 0) {
+      fail("calendar agenda day boundaries")
+      return
+    }
+
     const locations = WeatherLocationModel.parseGeocodingResults(JSON.stringify({
       results: [
         { name: "Berlin", admin1: "Berlin", country: "Deutschland",

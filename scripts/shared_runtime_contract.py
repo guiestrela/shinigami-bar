@@ -82,7 +82,6 @@ PRESENTATION_IMPORTERS = frozenset({
     "shinigami.center/StatusIndicators.qml",
     "shinigami.center/SystemUpdateWidget.qml",
     "shinigami.center/WeatherPanel.qml",
-    "shinigami.center/WeatherWidget.qml",
     "shinigami.control-center/ActiveBarSettingsPage.qml",
     "shinigami.control-center/AppearanceWidgetTile.qml",
     "shinigami.control-center/BarWidget.qml",

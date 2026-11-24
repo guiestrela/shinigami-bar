@@ -3,7 +3,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import qs.Commons as Commons
 import qs.Ui as Ui
-import "../shinigami.state/lib/presentation" as Presentation
 
 Ui.BarWidget {
   id: root
@@ -27,18 +26,17 @@ Ui.BarWidget {
   readonly property string temperature: weatherService
     ? (useImperial ? weatherService.tempF : weatherService.tempC) : ""
   readonly property string unitSuffix: useImperial ? "°F" : "°C"
-  readonly property real iconSlotWidth: 20
   readonly property string tooltipText: {
     if (!weatherService) return "Weather unavailable"
     if (!weatherService.loaded)
-      return weatherService.unavailable ? "Weather offline" : "Loading weather"
+      return weatherService.unavailable ? "Weather offline" : "Weather…"
     const details = (weatherService.place ? weatherService.place + " · " : "")
       + temperature + unitSuffix
       + (weatherService.description ? " / " + weatherService.description : "")
     return weatherService.unavailable ? "Weather stale · " + details : details
   }
 
-  implicitWidth: bar && bar.vertical ? bar.barSize : iconSlotWidth
+  implicitWidth: bar && bar.vertical ? bar.barSize : weatherIcon.implicitWidth
   implicitHeight: bar ? bar.barSize : Commons.Style.space(35)
 
   function refresh() {
@@ -96,12 +94,9 @@ Ui.BarWidget {
   onWeatherServiceChanged: if (panelOpen) syncPanelLoader()
   onBarChanged: if (panelOpen) syncPanelLoader()
 
-  Presentation.BarGlyph {
+  Text {
     id: weatherIcon
-    optical: !root.bar || !root.bar.vertical
     anchors.centerIn: parent
-    width: optical ? parent.width : implicitWidth
-    horizontalAlignment: Text.AlignLeft
     text: root.weatherService && root.weatherService.loaded
       ? root.weatherService.icon
       : root.weatherService && root.weatherService.unavailable ? "?" : "·"
@@ -112,7 +107,6 @@ Ui.BarWidget {
       : root.contentColor
     font.family: root.bar ? root.bar.fontFamily : Commons.Style.font.family
     font.pixelSize: 14
-    renderType: Text.NativeRendering
   }
 
   Ui.WidgetButton {

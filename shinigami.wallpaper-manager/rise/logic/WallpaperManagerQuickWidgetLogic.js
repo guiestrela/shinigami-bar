@@ -2,9 +2,10 @@
 .pragma library
 
 function handleButton(riseOwner, riseEnvironment, button) {
-    var riseState = riseOwner;
-
-        riseEnvironment.tip.hide()
-        if (button === riseEnvironment.Qt.MiddleButton) riseOwner.root.wallpaperManagerServiceApi.nextAll()
-        else riseOwner.root.toggleWallpaperManager(riseOwner.screen, riseOwner)
-    }
+    riseEnvironment.tip.hide()
+    if (button === riseEnvironment.Qt.MiddleButton)
+        return riseOwner.root.wallpaperManagerServiceApi.nextAll()
+    if (button === riseEnvironment.Qt.RightButton)
+        return riseOwner.root.openWallpaperSettings()
+    return riseOwner.root.toggleWallpaperManager(riseOwner.screen, riseOwner)
+}

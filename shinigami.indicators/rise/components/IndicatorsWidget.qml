@@ -13,14 +13,23 @@ Item {
     readonly property bool hasActive: coordinator ? coordinator.hasActive : false
     readonly property bool revealed: revealInactive || hover.hovered
     readonly property var entries: [
+        {id: "PasswordlessSudo", glyph: "󰟵", active: coordinator.passwordless,
+            available: coordinator.passwordlessAvailable, label: "Passwordless sudo", activeLabel: "Disable passwordless sudo"},
         {id: "ScreenRecording", glyph: "󰻂", active: coordinator.recording,
-            available: false, activeLabel: "Stop recording"},
+            available: true, label: "Screen recording", activeLabel: "Stop recording"},
+        {id: "RemoteSession", glyph: "󰢹", active: coordinator.remote,
+            available: false, activeLabel: coordinator.remoteLabel},
+        {id: "Reminder", glyph: "󰢌", active: coordinator.reminders,
+            available: coordinator.remindersAvailable, label: "Set a reminder", activeLabel: coordinator.reminderLabel},
+        {id: "NightLight", glyph: "󰔎", active: coordinator.nightLight,
+            available: coordinator.nightLightAvailable, label: "Enable night light", activeLabel: "Disable night light"},
         {id: "Dnd", glyph: "󰂛", active: coordinator.silenced,
             available: true, label: "Silence notifications", activeLabel: "Allow notifications"},
         {id: "StayAwake", glyph: "", active: coordinator.awake,
             available: true, label: "Stay awake", activeLabel: "Allow idle lock"},
         {id: "Voxtype", glyph: "", active: coordinator.voxtype,
-            available: false, activeLabel: "Voxtype · left: model · right: settings"}
+            available: coordinator.voxtypeAvailable, label: "Voxtype · left: model · right: settings",
+            activeLabel: "Voxtype · left: model · right: settings"}
     ]
     readonly property var displayedEntries: entries.filter(function(entry) {
         return entry.active || (revealed && entry.available)
@@ -72,7 +81,7 @@ Item {
                 MouseArea {
                     anchors.fill: parent
                     hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
+                    cursorShape: indicator.modelData.id === "RemoteSession" ? Qt.ArrowCursor : Qt.PointingHandCursor
                     acceptedButtons: indicator.modelData.id === "Voxtype"
                         ? Qt.LeftButton | Qt.RightButton : Qt.LeftButton
                     onEntered: tip.show()

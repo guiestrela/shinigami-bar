@@ -45,6 +45,7 @@ Ui.Panel {
   readonly property bool iconOnly: tokens.v2Shell !== true
     && displayMode === "icon-only"
   readonly property bool compact: displayMode === "icon"
+  readonly property bool clock12h: !!clockSettings && clockSettings.clock12h === true
   property var centerService: bar && bar.shell
     && typeof bar.shell.serviceFor === "function"
     ? bar.shell.serviceFor("shinigami.center") : null
@@ -71,7 +72,10 @@ Ui.Panel {
     + (legacyIndicatorWidth > 0.5 && updateNaturalWidth > 0.5 ? centerSpacing : 0)
   readonly property real centerPadding: tokens ? tokens.pillPaddingX : 9
   readonly property real centerSpacing: Commons.Style.space(8)
-  readonly property real needMinimal: 2 * centerPadding + clockWidget.implicitWidth
+  readonly property real clockNaturalWidth: risePresentation
+    ? riseClockWidget.implicitWidth : clockWidget.implicitWidth
+  readonly property real needMinimal: 2 * centerPadding
+    + (compact ? scheduleGlyph.implicitWidth : clockNaturalWidth)
     + (iconOnly ? centerSpacing + scheduleGlyph.implicitWidth : 0)
     + (showIndicators ? centerSpacing + statusNaturalWidth : 0)
   readonly property real minimumResponsiveWidth: needMinimal
@@ -285,6 +289,7 @@ Ui.Panel {
         anchors.centerIn: parent
         bar: root.bar
         text: root.dateText
+        fixedWidth: dateLabel.implicitWidth
         labelVisible: root.bar && root.bar.vertical
         fontFamily: root.bar ? root.bar.fontFamily : Commons.Style.font.family
         fontSize: root.tokens ? root.tokens.captionSize : 10
@@ -315,6 +320,7 @@ Ui.Panel {
             ? dateButton.activeColor : dateButton.foreground
           font.family: dateButton.fontFamily
           font.pixelSize: dateButton.fontSize
+          font.letterSpacing: root.risePresentation ? 0.5 : 0
           renderType: Text.NativeRendering
           rotation: dateButton.textRotation
           horizontalAlignment: Text.AlignHCenter

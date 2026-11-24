@@ -22,8 +22,8 @@ payloads into a primary desktop's Omarchy plugin directory.
   declared State runtime and passive presentation modules.
 - `shinigami.state/lib/presentation/` contains the passive shared visual
   components; its declared consumers depend directly on State.
-- `shared/presentation/` retains only the active `ShinigamiPanel.qml` canonical
-  source. `scripts/sync-shared.sh` drift-checks its existing vendored copies.
+- `shared/presentation/` contains canonical panel and widget components.
+  `scripts/sync-shared.sh` verifies their vendored copies.
 - `contracts/` contains executable product and evidence contracts.
 - `scripts/shinigami_suite/` implements the transactional lifecycle adapter.
 - `tests/` contains source, component, runtime, and lifecycle regressions.

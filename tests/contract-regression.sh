@@ -29,12 +29,15 @@ hosts = {Path(sys.argv[2])} | {Path(v) for k, v in os.environ.items() if k in (
 # Namespace, marker, package name, and a validated dynamic collector prefix.
 # omarchy-exec-argv is a notification hint consumed by Omarchy's daemon, not an executable.
 noncommands = {'omarchy-keyboard-panel', 'omarchy-screenrecord-filename', 'omarchy-dev', 'omarchy-agent-usage-', 'omarchy-exec-argv'}
+calendar_data_resource = '/io.github.guiestrela.omarchy-google-calendar-clock/bin/caldir'
 for host in sorted(hosts):
     assert (host / 'bin').is_dir(), f'missing host bin/: {host}'
     for path in sorted(root.glob('shinigami.*/**/*')):
         if not path.is_file() or path.suffix not in ('', '.qml', '.js', '.py', '.sh'): continue
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if line.lstrip().startswith(('#', '//')): continue
+            if path.relative_to(root) == Path('shinigami.center/CalendarPanel.qml'):
+                line = line.replace(calendar_data_resource, '')
             branch = re.search(r'if command -v ([\w-]+) [^;]+; then ([^;]+); else ([^;]+); fi', line)
             if branch:
                 line = line.replace(branch[0], branch[2 if os.access(host / 'bin' / branch[1], os.X_OK) else 3])
@@ -849,8 +852,8 @@ if rg -q 'Process \{|FileView \{' shinigami.display-manager/BarWidget.qml \
   fail "brightness presentation and monitor adapter must remain worker-free"
 fi
 bridge=shinigami.display-manager/MonitorPanelBridge.qml
-[[ $(rg -o 'Timer[[:space:]]*\{' "$bridge" | wc -l) -eq 3 ]] \
-  || fail "monitor adapter must own exactly three deferred timers"
+[[ $(rg -o 'Timer[[:space:]]*\{' "$bridge" | wc -l) -eq 2 ]] \
+  || fail "monitor adapter must own exactly two deferred timers"
 if rg -q '\b(repeat|running)[[:space:]]*:' "$bridge"; then
   fail "monitor adapter deferred timers must not repeat or run independently"
 fi
@@ -858,9 +861,9 @@ rg -Uq 'Timer \{\n[[:space:]]*id: panelSync\n[[:space:]]*interval: 0\n[[:space:]
   || fail "monitor adapter panel sync is not zero-interval and owner-bound"
 rg -Uq 'Timer \{\n[[:space:]]*id: panelInjection\n[[:space:]]*interval: 0\n[[:space:]]*onTriggered: root\.injectPanel\(\)\n[[:space:]]*\}' "$bridge" \
   || fail "monitor adapter panel injection is not zero-interval and owner-bound"
-rg -Uq 'Timer \{\n[[:space:]]*id: hiddenClose\n[[:space:]]*interval: 0\n[[:space:]]*onTriggered: \{\n([^\n]*\n){0,3}[[:space:]]*&& typeof root\.panel\.close === "function"\) root\.panel\.close\(\)\n[[:space:]]*\}\n[[:space:]]*\}' "$bridge" \
-  || fail "monitor adapter hidden close is not zero-interval and owner-bound"
-rg -Uq 'function shutdown\(\) \{\n([^\n]*\n){0,4}[[:space:]]*panelSync\.stop\(\)\n[[:space:]]*panelInjection\.stop\(\)\n[[:space:]]*hiddenClose\.stop\(\)' "$bridge" \
+rg -Uq 'function onOpenedChanged\(\) \{\n[^\n]*\n[[:space:]]*if \(typeof root\.panel\.close === "function"\) root\.panel\.close\(\)\n[[:space:]]*root\.summonVisiblePanel\(\)' "$bridge" \
+  || fail "monitor adapter does not close the hidden panel before redirecting"
+rg -Uq 'function shutdown\(\) \{\n([^\n]*\n){0,4}[[:space:]]*panelSync\.stop\(\)\n[[:space:]]*panelInjection\.stop\(\)' "$bridge" \
   || fail "monitor adapter shutdown does not stop every deferred timer"
 if rg -q '^[[:space:]]*selected:' shinigami.display-manager/BrightnessPanel.qml; then
   fail "brightness panel uses Button-only selected state on CursorSurface"

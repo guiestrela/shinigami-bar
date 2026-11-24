@@ -164,7 +164,6 @@ Item {
     shuttingDown = true
     panelSync.stop()
     panelInjection.stop()
-    hiddenClose.stop()
     if (panel && panel.opened === true && typeof panel.close === "function")
       panel.close()
     embed.shutdown()
@@ -189,14 +188,14 @@ Item {
   }
 
   // The official component owns the legacy IPC target. Redirect an IPC open
-  // to Shinigami's screen-local presentation and never leave the stock popup
-  // mapped behind it.
+  // to Shinigami's screen-local presentation. Reset the hidden controller
+  // before the next frame can render the stock popup.
   Connections {
     target: root.shuttingDown ? null : root.panel
     function onOpenedChanged() {
       if (!root.panel || root.panel.opened !== true) return
+      if (typeof root.panel.close === "function") root.panel.close()
       root.summonVisiblePanel()
-      hiddenClose.restart()
     }
   }
 
@@ -251,15 +250,6 @@ Item {
     interval: 0
     onTriggered: root.injectPanel()
   }
-  Timer {
-    id: hiddenClose
-    interval: 0
-    onTriggered: {
-      if (root.panel && root.panel.opened === true
-          && typeof root.panel.close === "function") root.panel.close()
-    }
-  }
-
   Loader {
     id: panelLoader
     anchors.fill: parent

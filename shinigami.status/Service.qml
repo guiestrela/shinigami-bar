@@ -25,12 +25,18 @@ Item {
   property bool runtimeProbesEnabled: true
 
   readonly property var idleService: suiteShell.firstPartyServiceFor("omarchy.idle")
+  readonly property var nightLightService: suiteShell.firstPartyServiceFor("omarchy.nightlight")
+  readonly property var remoteSessionService: suiteShell.firstPartyServiceFor("omarchy.remote-session")
   readonly property var notificationService: notificationAdapter.available
     ? notificationAdapter : null
   readonly property bool stayAwake: idleService
     ? idleService.stayAwake === true : false
   readonly property bool notificationsSilenced: notificationService
     ? notificationService.doNotDisturb === true : false
+  readonly property bool nightLightActive: !!nightLightService && nightLightService.enabled === true
+  readonly property bool remoteSessionActive: !!remoteSessionService && remoteSessionService.active === true
+  readonly property var remoteSessionPeers: remoteSessionService && Array.isArray(remoteSessionService.peers)
+    ? remoteSessionService.peers : []
 
   NotificationAdapter {
     id: notificationAdapter
@@ -57,6 +63,34 @@ Item {
   property bool voxtypeRetryEnabled: true
   readonly property bool voxtypeActive: voxtypeState === "recording"
     || voxtypeState === "transcribing"
+  property bool passwordlessSudo: false
+  property bool passwordlessSudoAvailable: false
+  property int reminderCount: 0
+  property bool remindersAvailable: false
+  property string reminderTooltip: ""
+
+  function refreshIndicators() {
+    if (!runtimeProbesEnabled) return
+    sudoStatus.running = true
+    reminderStatus.running = true
+  }
+
+  function openReminder() {
+    if (!remindersAvailable) return false
+    return launch(reminderCount > 0 ? ["omarchy-reminder", "show"] : ["omarchy-reminder", "-i"])
+  }
+
+  function openPasswordlessSudo() {
+    if (!passwordlessSudoAvailable) return false
+    if (!passwordlessSudo) return launch([
+      "omarchy-launch-floating-terminal-with-presentation", "omarchy-sudo-passwordless"
+    ])
+    if (sudoDisable.running) return false
+    if (actionRunner && typeof actionRunner.run === "function")
+      return launch(sudoDisable.command)
+    sudoDisable.running = true
+    return true
+  }
 
   function toggleStayAwake() {
     if (!idleService || typeof idleService.setIdleEnabled !== "function") return false
@@ -78,6 +112,16 @@ Item {
     return true
   }
 
+  function openRecordingMenu() {
+    return launch(["omarchy-menu", "toggle", "trigger.capture.screenrecord"])
+  }
+
+  function toggleNightLight() {
+    if (!nightLightService || typeof nightLightService.setNightlight !== "function") return false
+    nightLightService.setNightlight(!nightLightActive)
+    return true
+  }
+
   function openVoxtypeModel() {
     launch(["omarchy-voxtype-model"])
     return true
@@ -94,6 +138,45 @@ Item {
     actionLauncher.command = command
     actionLauncher.startDetached()
     return true
+  }
+
+  Timer {
+    interval: 60000
+    running: root.runtimeProbesEnabled
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: root.refreshIndicators()
+  }
+
+  Process {
+    id: sudoStatus
+    command: ["bash", "-c", "command -v omarchy-sudo-passwordless >/dev/null && exec omarchy-sudo-passwordless --active"]
+    onExited: function(code) {
+      root.passwordlessSudo = code === 0
+      root.passwordlessSudoAvailable = code === 0 || code === 3
+    }
+  }
+
+  Process {
+    id: sudoDisable
+    command: ["omarchy-sudo-passwordless", "--disable"]
+    onExited: root.refreshIndicators()
+  }
+
+  Process {
+    id: reminderStatus
+    command: ["omarchy-reminder", "show", "--json"]
+    stdout: StdioCollector { id: reminderOutput }
+    onExited: function(code) {
+      let value = null
+      if (code === 0 && reminderOutput.text.length <= 32768) {
+        try { value = JSON.parse(reminderOutput.text) } catch (error) {}
+      }
+      root.remindersAvailable = !!value && Number.isInteger(value.count) && value.count >= 0
+        && typeof value.tooltip === "string"
+      root.reminderCount = root.remindersAvailable ? Math.min(10000, value.count) : 0
+      root.reminderTooltip = root.remindersAvailable ? value.tooltip.slice(0, 500) : ""
+    }
   }
 
   function refreshRecording() {

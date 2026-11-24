@@ -18,6 +18,10 @@ esac
 # scheduling contract can be separated without changing panel behavior.
 # HostWidgetEmbed shares checked host-embedding code without a cross-plugin import.
 mappings=(
+  "shared/presentation/RiseTooltipMixin.qml:shinigami.center/rise/components/TooltipMixin.qml"
+  "shared/presentation/RiseTooltipMixin.qml:shinigami.indicators/rise/components/TooltipMixin.qml"
+  "shared/presentation/RiseTooltipMixin.qml:shinigami.onedrive/components/TooltipMixin.qml"
+  "shared/presentation/RiseTooltipMixin.qml:shinigami.wallpaper-manager/rise/components/TooltipMixin.qml"
   "shared/runtime/HostWidgetEmbed.qml:shinigami.center/HostWidgetEmbed.qml"
   "shared/runtime/HostWidgetEmbed.qml:shinigami.status/HostWidgetEmbed.qml"
   "shared/runtime/HostWidgetEmbed.qml:shinigami.audio/HostWidgetEmbed.qml"
