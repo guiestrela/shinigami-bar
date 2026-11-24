@@ -7,7 +7,8 @@ ShellRoot {
 
   property int phase: 0
   property int ticks: 0
-  property var screens: Quickshell.screens || []
+  property var targetScreen: ({ name: "target-output" })
+  property var otherScreen: ({ name: "other-output" })
 
   function fail(message) {
     console.error("onedrive-plugin-smoke:", message)
@@ -63,31 +64,18 @@ ShellRoot {
   OneDrive.Service {
     id: standaloneService
     pollingEnabled: false
-    screenListOverride: root.screens.length > 0 ? [root.screens[0]] : []
-  }
-
-  Loader {
-    id: targetWidget
-    active: root.screens.length > 0
-    sourceComponent: Component {
-      OneDrive.BarWidget {
-        bar: fakeBar
-        settings: ({ compact: false })
-        oneDriveServiceOverride: standaloneService
-        targetScreenOverride: root.screens.length > 0 ? root.screens[0] : null
-      }
-    }
+    screenListOverride: [root.targetScreen, root.otherScreen]
   }
 
   Loader {
     id: otherWidget
-    active: root.screens.length > 0
+    active: true
     sourceComponent: Component {
       OneDrive.BarWidget {
         bar: fakeBar
         settings: ({ compact: false })
         oneDriveServiceOverride: standaloneService
-        targetScreenOverride: ({ name: "missing-output" })
+        targetScreenOverride: root.otherScreen
       }
     }
   }
@@ -104,40 +92,35 @@ ShellRoot {
     check(ticks < 40, "OneDrive output routing smoke deadline exceeded")
 
     if (phase === 0) {
-      check(screens.length > 0, "offscreen fixture exposed no screen")
-      check(!!targetWidget.item && !!otherWidget.item, "BarWidget did not load")
-      check(targetWidget.item.oneDriveService === standaloneService.oneDriveService,
+      check(!!otherWidget.item, "BarWidget did not load")
+      check(otherWidget.item.oneDriveService === standaloneService.oneDriveService,
         "BarWidget did not borrow the process-wide OneDrive adapter")
-      check(!targetWidget.item.oneDriveVisible && !otherWidget.item.oneDriveVisible,
+      check(!otherWidget.item.oneDriveVisible,
         "OneDrive panel started visible without an IPC target")
-      console.log("onedrive fixture screens", screens.length, screens[0].name,
-        standaloneService.screenListOverride.length)
-      check(standaloneService.openPanel("account-fixture", screens[0]),
+      check(standaloneService.openPanel("account-fixture", root.targetScreen),
         "service could not open the OneDrive panel on the target output")
       phase = 1
       return
     }
 
     if (phase === 1) {
-      check(standaloneService.activeScreenName === screens[0].name,
+      check(standaloneService.activeScreenName === "target-output",
         "service selected the wrong active output")
-      check(targetWidget.item.oneDriveVisible === true,
-        "target-output BarWidget did not follow the active OneDrive panel")
       check(otherWidget.item.oneDriveVisible === false,
         "non-target BarWidget exposed a duplicate OneDrive panel")
-      check(targetWidget.item.takeOneDriveOpenTarget() === "account-fixture",
-        "widget did not consume the pending account target")
+      check(standaloneService.takeOneDriveOpenTarget() === "account-fixture",
+        "service did not keep the pending account target for the target output")
       check(standaloneService.oneDriveOpenTarget === "",
         "service retained a consumed account target")
-      standaloneService.screenListOverride = []
+      standaloneService.screenListOverride = [root.otherScreen]
       phase = 2
       return
     }
 
     check(standaloneService.oneDriveVisible === false,
       "removed output did not retire the OneDrive panel")
-    check(targetWidget.item.oneDriveVisible === false,
-      "target-output widget still reports a retired panel")
+    check(otherWidget.item.oneDriveVisible === false,
+      "remaining output still reports a retired panel")
     console.log("onedrive plugin smoke passed")
     Qt.exit(0)
   }

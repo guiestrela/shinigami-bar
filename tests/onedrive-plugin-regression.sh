@@ -108,9 +108,8 @@ rg -Fq 'property alias pollingEnabled: adapter.pollingEnabled' "$service" \
 rg -Fq 'property alias settings: adapter.settings' "$service" \
   || fail "OneDrive service cannot receive host widget settings"
 
-receiver_count=$(rg -l 'IpcHandler' "$repo_root"/shinigami.*/*.qml | while read -r candidate; do
-  rg -q 'target: "io.github.salemsayed.omaonedrive"' "$candidate" && printf '%s\n' "$candidate"
-done | wc -l)
+receiver_count=$(rg -l -F 'target: "io.github.salemsayed.omaonedrive"' \
+  "$repo_root"/shinigami.*/*.qml | wc -l)
 [[ $receiver_count -eq 1 ]] || fail "OmaOneDrive IPC does not have exactly one receiver"
 rg -Fq 'target: "io.github.salemsayed.omaonedrive"' "$service" \
   || fail "the sole OneDrive IPC receiver is not owned by shinigami.onedrive"
