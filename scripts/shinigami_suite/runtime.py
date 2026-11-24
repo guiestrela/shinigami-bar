@@ -840,16 +840,23 @@ class OmarchyRuntime:
                     for plugin_id in expected_enabled
                     if plugin_id in plugins and plugins[plugin_id].get("enabled") is not True
                 }
-                active = plugins.get(active_bar, {}).get("active") is True
+                active_bars = {
+                    plugin_id
+                    for plugin_id, plugin in plugins.items()
+                    if plugin.get("active") is True
+                    and isinstance(plugin.get("kinds"), list)
+                    and "bar" in plugin["kinds"]
+                }
                 payload_ready = self.payload_ready(payload_digest)
-                if not missing and not disabled and active and payload_ready:
+                if not missing and not disabled and active_bars == {active_bar} and payload_ready:
                     self.verify_single_shell_instance()
                     self.verify_bar_layer_ownership("shinigami-bar")
                     self.ping()
                     return
                 detail = (
                     f"missing={sorted(missing)}, disabled={sorted(disabled)}, "
-                    f"activeBar={active}, payloadReady={payload_ready}"
+                    f"activeBars={sorted(active_bars)}, expectedBar={active_bar!r}, "
+                    f"payloadReady={payload_ready}"
                 )
             except RuntimeFailure as error:
                 detail = str(error)

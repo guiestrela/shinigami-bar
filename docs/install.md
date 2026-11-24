@@ -46,8 +46,8 @@ package installation requires an admitted Shinigami release identity.
    ./scripts/shinigami-suite install --dry-run
    ```
 
-3. Install and confirm the prompt to activate the bar. Run this as your desktop
-   user.
+3. Install as your desktop user and confirm the prompt. The installer switches
+   from the current bar to Shinigami and restarts the Omarchy shell automatically.
 
    ```bash
    ./scripts/shinigami-suite install
@@ -67,8 +67,9 @@ steps.
    plugin root, writes the new config, and performs one full restart;
 7. for external-layout installation, publishes the roots and uses a live
    registry rescan and config reload without changing the active bar owner;
-8. verifies the running payload and restores the previous state if a gate
-   fails.
+8. confirms the running payload and, for managed activation, checks that
+   Shinigami is the only active bar. If verification fails, the transaction
+   restores the previous state.
 
 Shinigami's lifecycle does not edit files below `~/.config/hypr/` and does not
 change Hyprland window borders, inner gaps, or outer gaps. Such changes are not

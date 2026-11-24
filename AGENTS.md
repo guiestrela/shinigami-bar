@@ -37,6 +37,7 @@ python3 tests/test_shinigami_suite.py
 python3 tests/test_lifecycle_admission.py
 python3 tests/test_shinigami_health.py
 python3 tests/test_shinigami_manager.py
+./tests/onedrive-plugin-regression.sh
 ./tests/third-party-integration-regression.sh
 # Requires a running Wayland session; starts isolated fixture shells.
 ./tests/shinigami-suite-quattro-runtime.sh

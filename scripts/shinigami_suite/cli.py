@@ -618,6 +618,10 @@ def command_install(
         if external else f"Install Shinigami profile {profile.id}"
     )
     print_plan(label, specs, paths)
+    if not external:
+        current_bar = configured_bar_id(current)
+        if current_bar != profile.active_bar:
+            print(f"Switch the active bar from {current_bar!r} to {profile.active_bar!r}.")
     if args.dry_run:
         print("Dry run complete; no files changed.")
         return 0

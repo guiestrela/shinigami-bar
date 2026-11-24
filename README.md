@@ -75,8 +75,8 @@ copied without its Git metadata cannot run the installer.
    ./scripts/shinigami-suite install --dry-run
    ```
 
-3. Install and confirm the prompt to activate the bar. Run this as your desktop
-   user.
+3. Install as your desktop user and confirm the prompt. The installer switches
+   from the current bar to Shinigami and restarts the Omarchy shell automatically.
 
    ```bash
    ./scripts/shinigami-suite install

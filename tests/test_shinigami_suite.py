@@ -4283,6 +4283,17 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertFalse((self.paths.state_dir / "install.json").exists())
 
     def test_managed_install_drains_before_publish_without_rescan(self) -> None:
+        rise = "io.github.guiestrela.quickshell-rise"
+        rise_root = self.paths.plugin_dir / rise
+        rise_root.mkdir(parents=True)
+        (rise_root / "manifest.json").write_text(
+            json.dumps({"id": rise, "kinds": ["bar"]}), encoding="utf-8"
+        )
+        config = json.loads(self.defaults.read_text(encoding="utf-8"))
+        config["bar"]["id"] = rise
+        atomic_write(self.paths.config_file, encode_config(config))
+        self.assertTrue(self.runtime.list_plugins()[rise]["active"])
+
         original_expose = PluginTransaction.expose
 
         def recording_expose(transaction: PluginTransaction) -> None:
@@ -4299,7 +4310,37 @@ class SuiteLifecycleTests(unittest.TestCase):
 
         self.assertEqual(self.runtime.events, ["stop", "expose", "restart"])
         self.assertEqual(self.runtime.session_lock_preflights, 1)
+        plugins = self.runtime.list_plugins()
+        self.assertFalse(plugins[rise]["active"])
+        self.assertTrue(plugins["shinigami.bar"]["active"])
+        self.assertEqual(load_install_state(self.paths, self.suite)["previousBar"]["id"], rise)
         self.assertEqual(command_status(self.suite, self.paths), 0)
+
+    def test_managed_install_restores_rise_when_two_bars_report_active(self) -> None:
+        rise = "io.github.guiestrela.quickshell-rise"
+        config = json.loads(self.defaults.read_text(encoding="utf-8"))
+        config["bar"]["id"] = rise
+        original_config = encode_config(config)
+        atomic_write(self.paths.config_file, original_config)
+        list_plugins = self.runtime.list_plugins
+        verify_install = self.runtime.verify_install
+
+        def conflicting_catalog() -> dict[str, dict[str, object]]:
+            plugins = list_plugins()
+            plugins[rise] = {"id": rise, "kinds": ["bar"], "active": True}
+            return plugins
+
+        with patch.object(self.runtime, "list_plugins", side_effect=conflicting_catalog), patch.object(
+            self.runtime, "verify_install",
+            side_effect=lambda *args, **kwargs: verify_install(*args, **kwargs, timeout=0.05),
+        ):
+            with self.assertRaisesRegex(RuntimeFailure, r"activeBars=.*quickshell-rise.*shinigami\.bar"):
+                command_install(self.args(), self.suite, self.paths, self.runtime)
+
+        self.assertEqual(self.paths.config_file.read_bytes(), original_config)
+        self.assertEqual(self.runtime.events, ["stop", "restart", "stop", "restart"])
+        self.assertTrue(self.runtime.shell_running)
+        self.assertFalse((self.paths.state_dir / "install.json").exists())
 
     def test_managed_update_stops_before_publish_and_restarts_once(self) -> None:
         self.install()
