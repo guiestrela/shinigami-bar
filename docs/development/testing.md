@@ -457,6 +457,16 @@ intended diagnostics; a restored positive must pass. This is bounded input and
 owned-fixture evidence, not a general malicious-QML sandbox or instantaneous
 filesystem-path freshness guarantee.
 
+## Standalone OneDrive
+
+`tests/onedrive-plugin-regression.sh` proves that `shinigami.onedrive` is the
+only owner of the `io.github.salemsayed.omaonedrive` IPC target, registers its
+own process-wide provider, and remains absent from `shinigami.quick-access`.
+Its isolated QML smoke opens the panel for one declared output and confirms that
+a widget bound to another output stays hidden; removing the active output retires
+the panel and pending account target. This is bounded fixture evidence, not live
+OneDrive credentials or physical multi-output acceptance.
+
 ## Power cooperative runtime
 
 The canonical owner and operation controller live directly in

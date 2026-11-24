@@ -269,6 +269,7 @@ def main() -> None:
         "python3 tests/native-catalog-fallback-regression.py",
         "python3 tests/native-catalog-resource-regression.py",
         "python3 tests/all24-scoped-service-regression.py",
+        "tests/onedrive-plugin-regression.sh",
         "FixtureCatalogService.qml` only exposes observation IPC",
         "exact 19 service owners",
         "`--max-filesize 131072`",
