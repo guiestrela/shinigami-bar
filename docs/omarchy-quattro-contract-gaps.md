@@ -545,6 +545,9 @@ feature is intentionally implemented by Shinigami and is not an upstream gap.
 | `shinigami.center` | QTR-005 weather, QTR-006 system update | Host service gap |
 | `shinigami.media` | `omarchy.media` already supplies a service | Contract available |
 | `shinigami.quick-access` | `omarchy.background`; discovery via QTR-007 | Partial host service gap |
+| `shinigami.wallpaper-manager` | `omarchy.background` through the Quick Access picker owner | Own presentation; no second picker daemon |
+| `shinigami.indicators` | QTR-006 idle, recording, and Voxtype owners through `shinigami.status` | Own presentation; no duplicate status poller |
+| `shinigami.onedrive` | `io.github.salemsayed.omaonedrive` notification IPC | Own standalone coordinator and output-local panel |
 | `shinigami.network` | Public Quickshell Networking plus Shinigami-owned bounded D-Bus helpers | Own native capability; QTR-005 remains a general host ecosystem gap |
 | `shinigami.battery` | QTR-005 power/UPower | Partial host service gap |
 | `shinigami.display-manager` | QTR-005 monitor | Host service gap |
