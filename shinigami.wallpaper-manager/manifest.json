@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.wallpaper-manager",
+  "name": "Shinigami Wallpaper Manager",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Pick or cycle wallpapers.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Wallpaper Manager",
+    "description": "Pick or cycle wallpapers",
+    "category": "Utilities",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "wallpaper-manager",
+    "requires": [
+      "shinigami.state",
+      "shinigami.quick-access"
+    ],
+    "recommends": []
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.battery",
+  "name": "Shinigami Battery",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami battery status and detailed battery panel.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami battery",
+    "description": "Battery level, charge state, health, and details",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G12",
+    "requires": [
+      "shinigami.state",
+      "shinigami.power-state"
+    ],
+    "recommends": []
+  }
+}

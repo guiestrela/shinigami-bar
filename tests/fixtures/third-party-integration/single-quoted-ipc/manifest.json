@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "example.shinigami-test.single-quoted-ipc",
+  "name": "Shinigami single-quoted IPC integration fixture",
+  "version": "1.0.0",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"}
+}

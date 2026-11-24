@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.memory",
+  "name": "Shinigami Memory",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami memory widget and detailed memory panel.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami memory",
+    "description": "Memory usage with compact and detailed views",
+    "category": "System",
+    "defaultSection": "left",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G4",
+    "requires": [
+      "shinigami.state",
+      "shinigami.telemetry"
+    ],
+    "recommends": []
+  }
+}

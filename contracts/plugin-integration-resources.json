@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "dynamicResources": [
+    {"kind": "ipc", "resource": "omarchy.audio", "owner": "shinigami.audio/Service.qml", "sourceExpression": "SuiteRuntime.HostContract.ipcTargets.audio"},
+    {"kind": "ipc", "resource": "omarchy.bluetooth", "owner": "shinigami.bluetooth/Service.qml", "sourceExpression": "SuiteRuntime.HostContract.ipcTargets.bluetooth"},
+    {"kind": "ipc", "resource": "omarchy.network", "owner": "shinigami.network/NetworkPanelBridge.qml", "sourceExpression": "SuiteRuntime.HostContract.ipcTargets.network"},
+    {"kind": "ipc", "resource": "omarchy.bar", "owner": "shinigami.state/runtime/Runtime.qml", "sourceExpression": "Local.HostContract.ipcTargets.bar"}
+  ]
+}

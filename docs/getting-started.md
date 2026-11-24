@@ -1,0 +1,75 @@
+# Get started
+
+Status: user reference
+
+Shinigami is a native bar and plugin suite for Omarchy Quattro. It provides the
+approved QS Rise V1 and V2 layouts, controls, widgets, panels, and interaction
+model without replacing Omarchy's plugin system or starting a second
+Quickshell process.
+
+Shinigami is an independent third-party project. It is not an official Omarchy
+product, official Omarchy bar, or Basecamp-maintained plugin.
+
+## Open the Control Center
+
+Select the **Shinigami** wordmark in the bar. The Control Center keeps the
+supported shell settings in seven focused pages:
+
+- **Bars** switches bar hosts and configures the active bar layout and surface.
+- **Icons** controls the icon/content mode and visual presentation of widgets
+  active in the current bar layout.
+- **Logo** selects the launcher wordmark or icon.
+- **Workspaces** controls workspace count and marker style.
+- **Pickers** selects the theme, wallpaper, screenshot, and video browser.
+- **Widgets** enables, configures, and places compatible bar widgets.
+- **Advanced** contains maintenance and session actions.
+
+## Switch bar hosts
+
+Use **Bars** to move between Shinigami and the stock Omarchy bar. Each host keeps
+its own layout, and both return paths remain available after the switch.
+
+The suite also provides transactional activate and deactivate commands for
+recovery or terminal use. See [install and update](install.md#switch-bar-hosts)
+for those commands and the difference between an Omarchy bar reset and a full
+defaults reset.
+
+## Customize Shinigami
+
+The Control Center exposes the supported product settings:
+
+- switch between the V1 and V2-derived shell styles;
+- place the bar at the top or bottom and select its shell shape;
+- choose a semantic accent from the active Omarchy theme;
+- configure V1 border, shadow, and Radius 12/6 or the V2 Bar border and
+  Panels (including tooltip borders);
+- enable Frost transparency in V1 and V2 Notch;
+- choose workspace presentation and picker style;
+- set per-widget presentation and enabled state; and
+- rearrange widgets and control split or separator boundaries.
+
+Continue changing themes and wallpapers through Omarchy. Omarchy owns the
+active theme, while Shinigami maps its colors to semantic presentation tokens
+and retains its own geometry and interaction behavior.
+
+## Understand saved state
+
+Shinigami stores its user-facing settings in the `.shinigami` object of the
+`shinigami.state` service entry in Omarchy's `shell.json` (`plugins[]`).
+The file lives at `~/.config/omarchy/shell.json`. Suite ownership, revision,
+hashes, and transaction recovery data live separately in the XDG state directory.
+
+Use the Control Center for normal changes. Read [configuration](configuration.md)
+before editing JSON or suite state by hand.
+
+## Know the release boundary
+
+Shinigami 0.2.5 is the current stable release and focuses on stabilization. It supports Omarchy
+Quattro with horizontal Top and Bottom bars. "0.x" means APIs may still change between
+releases, not that a release is a prerelease. Use tagged releases and the documented update
+and recovery route. Pinned source stack: Omarchy 4.5.0, Quickshell 0.3.2, Qt 6.12; forward
+reference 551dc629. Historical physical acceptance is single-output, not a live 4.5.0 pass.
+
+Read [release readiness](release-readiness.md) for the current evidence and
+open gates. Use [troubleshooting](development/troubleshooting.md) if the bar,
+panel, or suite lifecycle enters an unexpected state.

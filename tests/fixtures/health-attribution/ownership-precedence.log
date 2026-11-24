@@ -1,0 +1,2 @@
+INFO Configuration Loaded
+TypeError: shinigami.control-center/ControlMainPage.qml failed while loading /usr/share/omarchy/shell/plugins/bar/widgets/ActiveWindow.qml:42 and mentions OmaConnect

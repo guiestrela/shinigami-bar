@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+suite="$repo_root/contracts/plugin-suite-v1.json"
+registry="$omarchy_path/shell/services/PluginRegistry.qml"
+shell_root="$omarchy_path/shell/shell.qml"
+plugin_add_cli="$omarchy_path/bin/omarchy-plugin-add"
+legacy_plugin_cli="$omarchy_path/bin/omarchy-plugin"
+keyboard_panel="$omarchy_path/shell/Ui/KeyboardPanel.qml"
+
+fail() {
+  printf 'Quattro contract regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v jq >/dev/null 2>&1 || fail 'jq is required'
+command -v rg >/dev/null 2>&1 || fail 'ripgrep is required'
+[[ -x $omarchy_path/bin/omarchy ]] || fail "missing Omarchy CLI below $omarchy_path"
+[[ -x $omarchy_path/bin/omarchy-plugin-validate ]] || fail 'missing official plugin validator'
+[[ -f $registry && -f $shell_root && -f $keyboard_panel ]] \
+  || fail 'Omarchy Quattro plugin host sources are incomplete'
+[[ -x $plugin_add_cli || -x $legacy_plugin_cli ]] \
+  || fail 'Omarchy Quattro plugin add command is missing'
+
+[[ ! -e $repo_root/manifest.json ]] \
+  || fail 'suite root must not masquerade as one native Omarchy plugin'
+if "$omarchy_path/bin/omarchy" plugin validate "$repo_root" >/dev/null 2>&1; then
+  fail 'suite root unexpectedly passes the single-plugin validator'
+fi
+
+mapfile -t plugin_ids < <(jq -r '.plugins[].id' "$suite")
+mapfile -t manifest_ids < <(find "$repo_root" -mindepth 2 -maxdepth 2 \
+  -path "$repo_root/shinigami.*/manifest.json" -printf '%h\n' \
+  | xargs -r -n 1 basename | sort)
+mapfile -t declared_ids < <(printf '%s\n' "${plugin_ids[@]}" | sort)
+[[ ${manifest_ids[*]} == "${declared_ids[*]}" ]] \
+  || fail 'suite manifest directories do not match the declared plugins'
+
+for plugin_id in "${plugin_ids[@]}"; do
+  directory="$repo_root/$plugin_id"
+  manifest="$directory/manifest.json"
+  [[ -f $manifest ]] || fail "missing manifest for $plugin_id"
+  "$omarchy_path/bin/omarchy" plugin validate "$directory" >/dev/null \
+    || fail "official validator rejected $plugin_id"
+  [[ $(jq -r '.id' "$manifest") == "$plugin_id" ]] \
+    || fail "manifest id does not match directory for $plugin_id"
+
+  while IFS=$'\t' read -r kind entry_key; do
+    entry_path=$(jq -r --arg key "$entry_key" '.entryPoints[$key] // empty' "$manifest")
+    [[ -n $entry_path && -f $directory/$entry_path ]] \
+      || fail "$plugin_id has no loadable $entry_key entry point for kind $kind"
+  done < <(jq -r '
+    .kinds[] |
+    [., ({"bar":"bar", "bar-widget":"barWidget", "service":"service",
+          "menu":"menu", "panel":"panel", "overlay":"overlay"}[.] // "")]
+    | @tsv
+  ' "$manifest")
+
+  if rg -n --glob '*.qml' '^\s*ShellRoot\s*\{' "$directory" >/dev/null; then
+    fail "$plugin_id declares its own ShellRoot"
+  fi
+done
+
+# Quattro's native add/update flow consumes exactly one root manifest and one
+# manifest id. Shinigami therefore needs its suite adapter for atomic multi-plugin
+# lifecycle handling instead of pretending that `omarchy plugin add <repo>` is
+# a supported install path.
+plugin_add_contract=$plugin_add_cli
+if [[ ! -x $plugin_add_contract ]]; then
+  plugin_add_contract=$legacy_plugin_cli
+fi
+rg -Fq 'omarchy-plugin-validate "$stage"' "$plugin_add_contract" \
+  || fail 'native plugin add no longer validates one staged root'
+rg -Fq 'id=$(jq -r '\''.id'\'' "$stage/manifest.json")' "$plugin_add_contract" \
+  || fail 'native plugin add no longer resolves one root manifest id'
+if [[ -x $plugin_add_cli ]]; then
+  rg -Fq 'omarchy-shell shell rescanPlugins' "$plugin_add_cli" \
+    || fail 'split plugin add no longer rescans through the shell IPC contract'
+fi
+rg -Fq 'self.run([self.command("omarchy-shell"), "shell", "rescanPlugins"])' \
+  "$repo_root/scripts/shinigami_suite/runtime.py" \
+  || fail 'suite lifecycle adapter retains the retired plugin rescan route'
+rg -Fq 'def reload_config(self, *, timeout: float = 30)' \
+  "$repo_root/scripts/shinigami_suite/runtime.py" \
+  || fail 'suite reload settling window is too short for a full-bar switch'
+rg -Fq 'timeout: float = 60' \
+  "$repo_root/scripts/shinigami_suite/runtime.py" \
+  || fail 'suite verification settling window is too short for Quattro reload'
+
+for needle in \
+  'scan_thirdparty' \
+  'for sub in \"$dir\"/*/' \
+  'Third-party plugins never shadow first-party ids' \
+  'function entryPointUrl' \
+  'function isEnabled'; do
+  rg -Fq "$needle" "$registry" || fail "PluginRegistry contract drift: $needle"
+done
+
+for needle in \
+  'function configureBar' \
+  'target.omarchyPath = shell.omarchyPath' \
+  'falling back to'; do
+  rg -Fq "$needle" "$shell_root" || fail "shell host contract drift: $needle"
+done
+
+case $SHINIGAMI_OMARCHY_SOURCE_REVISION in
+  0534987009061cbe2dacdde4ad564092ab698d12|c668141e9c42b13c80c9ca4ea108e11708c5e8a5|94a8fbc2d67eec5673c7f16b8c5e8a9c8452ffdc|237f1b4071a0bff2296c6d740ba2b9fd695ebfa0|50d687a1f27063513cf42e6f33c3a4fcb17c24ed|e71a816e9032f040225e086c7256f73e8080ae45|4c1b4cb3a94447aff39af98e2fcc0490a9fb32e7|246f33a2fef66411c990860d88e0823ae83987fc|0d8edf3812e0caafd155760c96bc2862933f611a|76e11b4f4c031cc9c5291dd5c7115eb2815b765f|ac2690cd7be4f47e4a255f5e2e78d904d436b068|84b3f2872b5023c13967543ed4a98b08fcac5b21|8e33e7233c01bf3b563b344bffc790a5d2dd98ea|f428bb4fe4d2e688fa05190b7d3c61430805b601|551dc62969046709e7c6176dbdbccacce580a487)
+    for needle in \
+      'target.shell = shell.pluginShellFor(manifest)' \
+      'target.manifest = shell.publicPluginManifest(manifest)' \
+      'target.barWidgetRegistry = shell.pluginBarWidgetRegistryFor(manifest)' \
+      'target.pluginRegistry = shell.pluginRegistryFor(manifest)' \
+      'target.barConfig = shell.barConfigFor(manifest)' \
+      'function publicPluginManifest(manifest)' \
+      'function publicBarWidgetSnapshot()'; do
+      rg -Fq "$needle" "$shell_root" \
+        || fail "scoped host shell contract drift: $needle"
+    done
+    for legacy_assignment in \
+      'if ("shell" in target) target.shell = shell' \
+      'if ("manifest" in target) target.manifest = manifest' \
+      'if ("barWidgetRegistry" in target) target.barWidgetRegistry = shell.barWidgetRegistry' \
+      'if ("pluginRegistry" in target) target.pluginRegistry = shell.pluginRegistry' \
+      'if ("barConfig" in target) target.barConfig = shell.barConfig'; do
+      if rg -Fxq "    $legacy_assignment" "$shell_root"; then
+        fail "scoped host shell restored raw host injection: $legacy_assignment"
+      fi
+    done
+    ;;
+  346e69e1cec6c4e8924531874af6ba010a1bc99e|ed7bae4ac5a570e9df307486e0202fdafcc6ee24)
+    for needle in \
+      'target.shell = shell' \
+      'target.manifest = manifest' \
+      'target.barWidgetRegistry = shell.barWidgetRegistry' \
+      'target.pluginRegistry = shell.pluginRegistry' \
+      'target.barConfig = shell.barConfig'; do
+      rg -Fq "$needle" "$shell_root" \
+        || fail "legacy compatibility shell contract drift: $needle"
+    done
+    ;;
+  *)
+    fail "unsupported complete-host source revision: $SHINIGAMI_OMARCHY_SOURCE_REVISION"
+    ;;
+esac
+
+for needle in \
+  'property var borderSpec:' \
+  'readonly property point cardOrigin:' \
+  'BorderSurface {' \
+  'id: card' \
+  'radius: Style.cornerRadius'; do
+  rg -Fq "$needle" "$keyboard_panel" \
+    || fail "KeyboardPanel compatibility surface drift: $needle"
+done
+
+# Bind one constant-only compatibility layer to the already pinned host tree.
+python3 - "$repo_root" "$omarchy_path" <<'PY'
+import json, re, sys
+from pathlib import Path
+suite, native = map(Path, sys.argv[1:])
+contract = (suite / "shinigami.state/runtime/HostContract.qml").read_text()
+values = {}
+for key, expression in re.findall(r'readonly property string (\w+): ([^\n]+)', contract):
+    parts = [part.strip() for part in expression.split("+")]
+    values[key] = "".join(json.loads(p) if p.startswith('"') else values[p] for p in parts)
+services = json.loads(re.search(r'firstPartyServices:\s*(\[[^\]]+\])', contract)[1])
+targets = re.findall(r'"([^"]+)"', re.search(r'ipcTargets:\s*\(\{(.*?)\}\)', contract, re.S)[1])
+assert len(services) == 3 and len(targets) == 4, "incomplete HostContract identities"
+ids = {json.loads(p.read_text()).get("id") for p in (native / "shell/plugins").rglob("*manifest.json")}
+assert set(services) <= ids, f"host first-party IDs missing: {set(services) - ids}"
+qml = "\n".join(p.read_text() for p in sorted((native / "shell").rglob("*.qml")))
+for target in targets:
+    route = r'\b(?:target|ipcTarget)\s*:\s*"' + re.escape(target) + '"'
+    assert re.search(route, qml), f"host IPC identity missing: {target}"
+commands = "\n".join(p.read_text(errors="replace") for p in sorted((native / "bin").glob("omarchy-*")) if p.is_file())
+for key in ("stateRoot", "togglesDir", "themeDir", "themeColorsFile", "themeNameFile", "barOffMarker"):
+    assert re.search(r'(?:\$HOME/|~/|"/)' + re.escape(values[key]) + r'(?=["\s]|$)', commands + qml), f"host path missing: {key}={values[key]}"
+# barHiddenMarker is a suite-side legacy alias, not a claimed host path.
+print("HostContract source binding passed: first-party IDs, IPC routes, host marker/theme paths")
+PY
+
+omarchy_version=unknown
+for package_name in omarchy omarchy-dev; do
+  if package_version=$(pacman -Q "$package_name" 2>/dev/null | awk '{print $2}'); then
+    omarchy_version=$package_version
+    break
+  fi
+done
+
+printf 'Quattro contract regression passed (source=%s revision=%s; local package=%s; %d plugins)\n' \
+  "$SHINIGAMI_OMARCHY_BASELINE_ID" "$SHINIGAMI_OMARCHY_SOURCE_REVISION" \
+  "$omarchy_version" "${#plugin_ids[@]}"

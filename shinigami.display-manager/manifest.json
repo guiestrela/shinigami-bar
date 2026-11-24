@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.display-manager",
+  "name": "Shinigami Display Manager",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Manage displays, scaling, text size, and brightness.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Display Manager",
+    "description": "Display configuration and brightness controls",
+    "category": "Hardware",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G13",
+    "capabilities": [
+      "display"
+    ],
+    "preferredRegion": "right",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

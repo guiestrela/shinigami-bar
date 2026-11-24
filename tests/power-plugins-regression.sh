@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+source "$repo_root/tests/lib/host-diagnostics.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+python3 "$repo_root/tests/power-deferred-regression.py"
+quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
+tmpdir=$(mktemp -d /tmp/shinigami-power-plugins.XXXXXX)
+trap 'rm -rf -- "$tmpdir"' EXIT
+
+fail() {
+  printf 'power plugins regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -d $omarchy_path/shell ]] || fail "Omarchy shell not found: $omarchy_path/shell"
+[[ -x $quickshell_bin ]] || fail "Quickshell not found: $quickshell_bin"
+
+mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures"
+chmod 700 "$tmpdir/runtime"
+shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
+printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+  >"$tmpdir/shinigami.state/.shinigami-managed.json"
+cp -a -- "$repo_root/shinigami.battery" "$tmpdir/battery"
+cp -a -- "$repo_root/shinigami.power-profile" "$tmpdir/powerProfile"
+cp -a -- "$repo_root/shinigami.power-state" "$tmpdir/powerState"
+cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
+cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"
+install -m 0644 "$repo_root/tests/fixtures/ShinigamiPanelTest.qml" \
+  "$tmpdir/powerProfile/ShinigamiPanel.qml"
+install -m 0644 "$repo_root/tests/fixtures/ShinigamiPanelTest.qml" \
+  "$tmpdir/battery/ShinigamiPanel.qml"
+install -m 0644 "$repo_root/tests/power-plugins-smoke.qml" "$tmpdir/shell.qml"
+install -m 0644 "$repo_root/tests/fixtures/PowerTestService.qml" \
+  "$repo_root/tests/fixtures/PowerTestPanel.qml" "$tmpdir/fixtures/"
+
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "component smoke exited $rc"
+grep -F 'power plugins smoke passed' <<<"$output" >/dev/null \
+  || fail "success marker missing"
+if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$output"; then
+  fail "component QML runtime error"
+fi
+
+mkdir -p "$tmpdir/power-runtime" "$tmpdir/power-bin"
+chmod 700 "$tmpdir/power-runtime"
+install -m 0755 "$repo_root"/tests/fixtures/power-bin/* "$tmpdir/power-bin/"
+printf 'balanced\n' >"$tmpdir/power-state"
+install -m 0644 "$repo_root/tests/power-service-runtime-smoke.qml" \
+  "$tmpdir/shell.qml"
+set +e
+service_output=$(timeout 8 env \
+  PATH="$tmpdir/power-bin:$PATH" \
+  SHINIGAMI_POWER_FIXTURE_STATE="$tmpdir/power-state" \
+  QT_QPA_PLATFORM=offscreen \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/power-runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+service_rc=$?
+set -e
+printf '%s\n' "$service_output"
+[[ $service_rc -eq 0 ]] || fail "power-state service smoke exited $service_rc"
+grep -F 'power service runtime smoke passed' <<<"$service_output" >/dev/null \
+  || fail "power-state service success marker missing"
+if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$service_output"; then
+  fail "service QML runtime error"
+fi
+[[ $(<"$tmpdir/power-state") == performance ]] \
+  || fail "power-state service did not execute the validated profile action"
+
+mkdir -p "$tmpdir/scope-data"
+printf 'balanced\n' >"$tmpdir/scope-data/profile"
+: >"$tmpdir/scope-data/trace"
+: >"$tmpdir/scope-data/barrier"
+: >"$tmpdir/scope-data/startup"
+install -m 0644 "$repo_root/tests/fixtures/power-runtime-helper.py" "$tmpdir/fixtures/"
+for smoke in power-command power-runtime; do
+  mkdir -m 700 "$tmpdir/$smoke-runtime"
+  install -m 0644 "$repo_root/tests/$smoke-smoke.qml" "$tmpdir/shell.qml"
+  set +e
+  smoke_output=$(timeout 9 env \
+    SHINIGAMI_POWER_SCOPE_DIR="$tmpdir/scope-data" \
+    QT_QPA_PLATFORM=offscreen WAYLAND_DISPLAY= \
+    XDG_RUNTIME_DIR="$tmpdir/$smoke-runtime" \
+    QML_IMPORT_PATH="$omarchy_path/shell" QML2_IMPORT_PATH="$omarchy_path/shell" \
+    "$quickshell_bin" -p "$tmpdir" 2>&1)
+  smoke_rc=$?
+  set -e
+  printf '%s\n' "$smoke_output"
+  [[ $smoke_rc -eq 0 ]] || fail "$smoke exited $smoke_rc"
+  grep -F "${smoke//-/ } smoke passed" <<<"$smoke_output" >/dev/null || fail "$smoke marker missing"
+  if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$smoke_output"; then
+    fail "$smoke QML runtime error"
+  fi
+done
+
+for plugin in battery power-profile; do
+  widget="$repo_root/shinigami.$plugin/BarWidget.qml"
+  rg -q 'serviceFor\("shinigami\.power-state"\)' "$widget" \
+    || fail "$plugin does not resolve the shared power-state service"
+  if rg -q 'bar\.(powerService|systemActions)' \
+      "$repo_root/shinigami.$plugin" --glob '*.qml'; then
+    fail "$plugin consumes transitional bar-owned feature state"
+  fi
+  if rg -q 'Quickshell\.Services\.UPower|UPower\.|Process \{|FileView \{' \
+      "$repo_root/shinigami.$plugin" --glob '*.qml' \
+      --glob '!ShinigamiPanel.qml' || \
+      rg -q 'Timer \{' "$repo_root/shinigami.$plugin" --glob '*.qml' --glob '!ShinigamiPanel.qml' --glob '!WaterRing.qml' --glob '!BatteryRing.qml' --glob '!BarWidget.qml' || { [[ $plugin != battery ]] && rg -q 'Timer \{' "$widget"; }; then
+    fail "$plugin presentation owns hardware state or background work"
+  fi
+done
+
+rg -q 'bar\.run\("omarchy-launch-or-focus-tui btop"\)' \
+  "$repo_root/shinigami.battery/BarWidget.qml" \
+  || fail "battery system-monitor action bypasses the host facade"
+rg -Fq 'model: panel.powerState.profiles' \
+  "$repo_root/shinigami.power-profile/PowerProfilePanel.qml" \
+  || fail "power-profile view does not consume the shared profile model"
+for glyph in '"󰌪"' '"󰊚"' '"󰓅"'; do
+  rg -Fq "$glyph" "$repo_root/shinigami.power-profile/PowerProfilePanel.qml" \
+    || fail "power-profile panel icon drifted from V1: $glyph"
+done
+if rg -Fq 'rotation: -90' "$repo_root/shinigami.battery/BarWidget.qml"; then
+  fail "battery bar gauge drifted from the horizontal V1 presentation"
+fi
+for pulse_site in shinigami.battery/BarWidget.qml shinigami.center/StatusIndicators.qml shinigami.control-center/BarWidget.qml; do
+  if rg -Fq 'Animation.Infinite' "$repo_root/$pulse_site"; then
+    fail "bar pulse must not animate per frame: $pulse_site"
+  fi
+done
+for charging_contract in \
+    ': batteryIcon(gauge.ratio * 100, gauge.charging, gauge.full)' \
+    'visible: gauge.horizontalCharging' \
+    'root.batteryOrientation === "horizontal" && (charging || full)' \
+    'opacity: low ? pulse : 1' \
+    'running: gauge.visible && gauge.low'; do
+  rg -Fq "$charging_contract" "$repo_root/shinigami.battery/BarWidget.qml" \
+    || fail "battery charging presentation drifted from V1: $charging_contract"
+done
+if rg -A8 -F 'NumberAnimation on pos' \
+    "$repo_root/shinigami.battery/BarWidget.qml" | rg -Fq 'Animation.Infinite'; then
+  fail "battery charging shimmer keeps the scene graph permanently active"
+fi
+rg -q 'function profileLabel\(profile\)' \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state service does not expose profile labels"
+rg -Fq 'commandFor("activeProfile", ["busctl", "--system", "get-property",' \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state service does not use the lightweight active-profile probe"
+rg -Fq 'function onProfileChanged() { root.refreshActiveProfile() }' \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state hot path still refreshes the complete profile list"
+rg -q 'readonly property string batteryId:' \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state service does not expose the physical battery id"
+rg -Fq 'String(batteryInfo.time || "")' \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state service does not retain the Omarchy battery-life fallback"
+rg -Fq "printf 'health\\\\t%s\\\\n'" \
+  "$repo_root/shinigami.power-state/Service.qml" \
+  || fail "power-state service does not retain the V1 sysfs health fallback"
+rg -q 'panel\.powerState\.batteryHealthText' \
+  "$repo_root/shinigami.battery/BatteryPanel.qml" \
+  || fail "battery panel does not render the shared health fallback"
+rg -q 'width: primaryStats\.width' \
+  "$repo_root/shinigami.battery/BatteryPanel.qml" \
+  || fail "battery information rows can collapse to zero width"
+
+printf 'power plugins regression passed\n'

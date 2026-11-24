@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.storage",
+  "name": "Shinigami Storage",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Read-only root usage and physical drive inventory.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami Storage",
+    "description": "Filesystem usage and read-only removable media inventory",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G18",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

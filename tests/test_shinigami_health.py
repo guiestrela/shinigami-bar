@@ -1,0 +1,1488 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import json
+import os
+import runpy
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+
+sys.dont_write_bytecode = True
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HEALTH = (
+    REPO_ROOT
+    / "shinigami.control-center"
+    / "manager"
+    / "shinigami-health"
+)
+HEALTH_ATTRIBUTION_FIXTURES = REPO_ROOT / "tests/fixtures/health-attribution"
+
+QUICKSHELL_EMPTY_REGISTRY = "No running instances.\n"
+INVALID_EMPTY_REGISTRY_OUTPUTS = (
+    "",
+    "No running instances.",
+    " No running instances.\n",
+    "No running instances. \n",
+    "No running instances.\r\n",
+    "No running instances.\nextra",
+    "prefix No running instances.\n",
+    "{}",
+    "null",
+    "not-json\n",
+)
+
+
+class HealthDiagnosticsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory(prefix="shinigami-health-test.")
+        self.root = Path(self.temporary.name)
+        self.home = self.root / "home"
+        self.config_home = self.home / ".config"
+        self.state_home = self.home / ".local/state"
+        self.plugin_dir = self.config_home / "omarchy/plugins"
+        self.state_dir = self.state_home / "shinigami"
+        self.omarchy = self.root / "omarchy"
+        self.source = self.root / "source"
+        for path in (
+            self.plugin_dir,
+            self.state_dir,
+            self.omarchy / "config/omarchy",
+            self.omarchy / "bin",
+            self.config_home / "omarchy",
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+        self.module = runpy.run_path(str(HEALTH))
+        self.plugin_ids = ["shinigami.bar", "shinigami.state"]
+        digests = {}
+        for plugin_id in self.plugin_ids:
+            target = self.plugin_dir / plugin_id
+            target.mkdir()
+            (target / "manifest.json").write_text(
+                json.dumps({"id": plugin_id}) + "\n", encoding="utf-8"
+            )
+            digest = self.module["payload_digest"](target)
+            digests[plugin_id] = digest
+            (target / ".shinigami-managed.json").write_text(
+                json.dumps(
+                    {
+                        "suiteId": "hancore.shinigami",
+                        "pluginId": plugin_id,
+                        "payloadDigest": digest,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+        self.config = {
+            "version": 1,
+            "bar": {
+                "id": "shinigami.bar",
+                "position": "top",
+                "style": "shinigami",
+                "layout": {"left": [], "center": [], "right": []},
+                "shinigami": {
+                    "version": 1,
+                    "presentation": {"shellStyle": "shinigami"},
+                },
+            },
+            "plugins": [
+                {
+                    "id": "shinigami.state",
+                    "shinigamiStateSchemaVersion": 1,
+                    "shinigami": {
+                        "version": 1,
+                        "presentation": {"shellStyle": "full"},
+                    },
+                }
+            ],
+        }
+        self.config_path = self.config_home / "omarchy/shell.json"
+        self.write_config(self.config)
+        (self.omarchy / "config/omarchy/shell.json").write_text(
+            json.dumps(self.config) + "\n", encoding="utf-8"
+        )
+
+        self.make_git_source()
+        self.state = {
+            "schemaVersion": 1,
+            "suiteId": "hancore.shinigami",
+            "suiteVersion": "0.1.0",
+            "sourceRoot": str(self.source),
+            "plugins": self.plugin_ids,
+            "pluginDigests": digests,
+            "activation": {
+                "activeBar": "shinigami.bar",
+                "layout": {"left": [], "center": [], "right": []},
+                "enableServices": ["shinigami.state"],
+            },
+            "settingsStorageVersion": 1,
+        }
+        self.write_state(self.state)
+
+        self.registry_file = self.root / "registry.json"
+        self.registry = [
+            {
+                "id": "shinigami.bar",
+                "kinds": ["bar"],
+                "enabled": True,
+                "active": True,
+            },
+            {
+                "id": "shinigami.state",
+                "kinds": ["service"],
+                "enabled": True,
+                "active": False,
+            },
+            {
+                "id": "omarchy.bar",
+                "kinds": ["bar"],
+                "enabled": False,
+                "active": False,
+            },
+            {
+                "id": "shinigami.control-center",
+                "kinds": ["service"],
+                "enabled": True,
+                "active": True,
+            },
+            {
+                "id": "OmaConnect",
+                "kinds": ["service"],
+                "enabled": True,
+                "active": True,
+            },
+        ]
+        self.write_json(self.registry_file, self.registry)
+        self.instance_id = "health-fixture"
+        self.process_file = self.root / "processes.json"
+        self.write_json(
+            self.process_file,
+            [
+                {
+                    "id": self.instance_id,
+                    "pid": 4242,
+                    "command": "quickshell -n -p /usr/share/omarchy/shell",
+                    "config_path": str(self.omarchy / "shell/shell.qml"),
+                }
+            ],
+        )
+        self.output_file = self.root / "outputs.json"
+        self.write_json(
+            self.output_file,
+            [{"name": "eDP-1", "scale": 1.0, "width": 1920, "height": 1080}],
+        )
+        self.runtime_dir = self.root / "runtime"
+        self.log_dir = (
+            self.runtime_dir / "quickshell/by-id" / self.instance_id
+        )
+        self.log_dir.mkdir(parents=True)
+        self.log_file = self.log_dir / "log.log"
+        self.log_file.write_text("INFO Configuration Loaded\n", encoding="utf-8")
+
+        self.environment = os.environ.copy()
+        self.environment.update(
+            {
+                "SHINIGAMI_HEALTH_HOME": str(self.home),
+                "XDG_CONFIG_HOME": str(self.config_home),
+                "XDG_STATE_HOME": str(self.state_home),
+                "SHINIGAMI_PLUGIN_DIR": str(self.plugin_dir),
+                "SHINIGAMI_STATE_DIR": str(self.state_dir),
+                "SHINIGAMI_CONFIG_FILE": str(self.config_path),
+                "OMARCHY_PATH": str(self.omarchy),
+                "SHINIGAMI_HEALTH_SOURCE_ROOT": str(self.source),
+                "SHINIGAMI_HEALTH_REGISTRY_FILE": str(self.registry_file),
+                "SHINIGAMI_HEALTH_PROCESS_FILE": str(self.process_file),
+                "SHINIGAMI_HEALTH_PROCESS_LIVE": "true",
+                "SHINIGAMI_HEALTH_OUTPUT_FILE": str(self.output_file),
+                "XDG_RUNTIME_DIR": str(self.runtime_dir),
+            }
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def git(self, *arguments: str, cwd: Path | None = None) -> None:
+        subprocess.run(
+            ["git", *(arguments)],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    def make_git_source(self) -> None:
+        self.remote = self.root / "remote.git"
+        self.git("init", "--bare", str(self.remote))
+        self.git("init", "-b", "main", str(self.source))
+        self.git("config", "user.name", "Health Test", cwd=self.source)
+        self.git("config", "user.email", "health@example.invalid", cwd=self.source)
+        (self.source / "README.md").write_text("fixture\n", encoding="utf-8")
+        self.git("add", "README.md", cwd=self.source)
+        self.git("commit", "-m", "fixture", cwd=self.source)
+        self.git("remote", "add", "origin", str(self.remote), cwd=self.source)
+        self.git("push", "-u", "origin", "main", cwd=self.source)
+
+    def commit_source(self, content: str, message: str = "fixture change") -> None:
+        (self.source / "README.md").write_text(content, encoding="utf-8")
+        self.git("add", "README.md", cwd=self.source)
+        self.git("commit", "-m", message, cwd=self.source)
+
+    def push_remote_commit(self, content: str) -> None:
+        writer = self.root / "writer"
+        self.git("clone", "--branch", "main", str(self.remote), str(writer))
+        self.git("config", "user.name", "Health Remote Test", cwd=writer)
+        self.git("config", "user.email", "health-remote@example.invalid", cwd=writer)
+        (writer / "README.md").write_text(content, encoding="utf-8")
+        self.git("add", "README.md", cwd=writer)
+        self.git("commit", "-m", "remote fixture change", cwd=writer)
+        self.git("push", "origin", "main", cwd=writer)
+
+    def push_remote_tag(self, tag: str) -> None:
+        self.git(
+            "push",
+            "origin",
+            f"HEAD:refs/tags/{tag}",
+            cwd=self.source,
+        )
+
+    def use_timed_out_fetch(self) -> None:
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        fake_git = fake_bin / "git"
+        fake_git.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys, time\n"
+            "if 'fetch' in sys.argv:\n"
+            "    time.sleep(10)\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n",
+            encoding="utf-8",
+        )
+        fake_git.chmod(0o755)
+        self.environment["PATH"] = (
+            str(fake_bin) + os.pathsep + self.environment["PATH"]
+        )
+        self.environment["SHINIGAMI_HEALTH_FETCH_TIMEOUT"] = "0.05"
+
+    def write_json(self, path: Path, value: object) -> None:
+        path.write_text(json.dumps(value) + "\n", encoding="utf-8")
+
+    def write_config(self, value: dict[str, object]) -> None:
+        self.write_json(self.config_path, value)
+
+    def write_state(self, value: dict[str, object]) -> None:
+        self.write_json(self.state_dir / "install.json", value)
+
+    def use_package_install(
+        self,
+        *,
+        installed_version: str | None = "0.1.1beta.13-1",
+        available_version: str | None = None,
+        fetch_error: str = "",
+    ) -> Path:
+        self.state.pop("sourceRoot", None)
+        self.state.update(
+            {
+                "suiteVersion": "0.1.1-beta.13",
+                "installOrigin": "package",
+                "payloadRoot": "/usr/share/shinigami-shell",
+                "sourceRevision": "package:0.1.1-beta.13",
+                "packageName": "shinigami-shell",
+                "packageVersion": "0.1.1-beta.13",
+            }
+        )
+        self.write_state(self.state)
+        fixture: dict[str, object] = {}
+        if installed_version is not None:
+            fixture["installedVersion"] = installed_version
+        if available_version is not None:
+            fixture["availableVersion"] = available_version
+        if fetch_error:
+            fixture["fetchError"] = fetch_error
+        path = self.root / "package.json"
+        self.write_json(path, fixture)
+        self.environment["SHINIGAMI_HEALTH_PACKAGE_FILE"] = str(path)
+        return path
+
+    def run_health(self, *arguments: str) -> dict[str, object]:
+        result = subprocess.run(
+            [str(HEALTH), *arguments],
+            env=self.environment,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return json.loads(result.stdout)
+
+    def git_output(self, *arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(self.source), *arguments],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def by_id(self, payload: dict[str, object]) -> dict[str, dict[str, object]]:
+        return {item["id"]: item for item in payload["checks"]}
+
+    def process_probe_from_result(
+        self,
+        *,
+        stdout: str = "",
+        stderr: str = "",
+        returncode: int = 0,
+        side_effect: BaseException | None = None,
+    ):
+        environment = dict(self.environment)
+        environment.pop("SHINIGAMI_HEALTH_PROCESS_FILE", None)
+        environment.pop("SHINIGAMI_HEALTH_PROCESS_LIVE", None)
+        completed = Mock(returncode=returncode, stdout=stdout, stderr=stderr)
+        runner = Mock(return_value=completed, side_effect=side_effect)
+        probe_class = self.module["Probe"]
+        globals_map = probe_class.load_processes.__globals__
+        with patch.dict(os.environ, environment, clear=True):
+            probe = probe_class(fetch=False)
+            with patch.dict(globals_map, {"run": runner}):
+                probe.load_processes()
+        probe.check_processes()
+        return probe
+
+    def process_probe_from_stdout(self, stdout: str):
+        return self.process_probe_from_result(stdout=stdout)
+
+    def test_healthy_runtime_is_structured_and_read_only(self) -> None:
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        self.assertEqual(payload["schemaVersion"], 1)
+        self.assertEqual(payload["overall"], "healthy")
+        self.assertEqual(checks["bar-runtime"]["status"], "ok")
+        self.assertEqual(checks["bar-runtime"]["label"], "Active bar")
+        self.assertEqual(checks["bar-runtime"]["value"], "Shinigami V2")
+        self.assertEqual(
+            checks["bar-geometry"]["value"], "Full · Top · 1 output(s)"
+        )
+        self.assertIn("State service", checks["configuration"]["detail"])
+        self.assertEqual(checks["managed-plugins"]["label"], "Shinigami plugins")
+        self.assertEqual(checks["managed-plugins"]["value"], "2/2 installed")
+        self.assertEqual(checks["source-status"]["value"], "Current · clean")
+        self.assertEqual(checks["source-update"]["value"], "Not checked")
+        self.assertEqual(payload["installOrigin"], "checkout")
+
+    def test_state_service_shell_style_reports_v1(self) -> None:
+        state_entry = self.config["plugins"][0]
+        state_entry["shinigami"]["presentation"]["shellStyle"] = "shinigami"
+        self.config["bar"]["shinigami"]["presentation"]["shellStyle"] = "full"
+        self.write_config(self.config)
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["bar-runtime"]["value"], "Shinigami V1")
+        self.assertEqual(
+            checks["bar-geometry"]["value"], "Islands · Top · 1 output(s)"
+        )
+
+    def test_state_service_notch_overrides_legacy_and_bar_style(self) -> None:
+        state_entry = self.config["plugins"][0]
+        state_entry["shinigami"]["presentation"]["shellStyle"] = "notch"
+        self.config["bar"]["shinigami"] = ["malformed legacy decoy"]
+        self.config["bar"]["style"] = "shinigami"
+        self.write_config(self.config)
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["bar-runtime"]["value"], "Shinigami V2")
+        self.assertEqual(
+            checks["bar-geometry"]["value"], "Notch · Top · 1 output(s)"
+        )
+
+    def test_missing_canonical_state_does_not_default_to_v1(self) -> None:
+        self.config["plugins"] = []
+        self.config["bar"]["shinigami"]["presentation"]["shellStyle"] = "notch"
+        self.write_config(self.config)
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["configuration"]["status"], "error")
+        self.assertIn("State service entry is missing", checks["configuration"]["detail"])
+        self.assertEqual(
+            checks["bar-runtime"]["value"], "Shinigami (form unknown)"
+        )
+        self.assertEqual(
+            checks["bar-geometry"]["value"], "Unknown · Top · 1 output(s)"
+        )
+
+    def test_malformed_canonical_state_refuses_legacy_fallback(self) -> None:
+        state_entry = self.config["plugins"][0]
+        state_entry["shinigamiStateSchemaVersion"] = 2
+        self.config["bar"]["shinigami"]["presentation"]["shellStyle"] = "notch"
+        self.write_config(self.config)
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["configuration"]["status"], "error")
+        self.assertIn("refusing legacy fallback", checks["configuration"]["detail"])
+        self.assertEqual(
+            checks["bar-runtime"]["value"], "Shinigami (form unknown)"
+        )
+
+    def test_valid_legacy_config_remains_reportable(self) -> None:
+        self.state.pop("settingsStorageVersion")
+        self.write_state(self.state)
+        self.config["plugins"] = []
+        self.config["bar"]["shinigami"]["presentation"]["shellStyle"] = "notch"
+        self.write_config(self.config)
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["configuration"]["status"], "ok")
+        self.assertIn("legacy bar settings", checks["configuration"]["detail"])
+        self.assertEqual(checks["bar-runtime"]["value"], "Shinigami V2")
+        self.assertEqual(
+            checks["bar-geometry"]["value"], "Notch · Top · 1 output(s)"
+        )
+
+    def test_package_health_uses_pacman_metadata_and_skips_git(self) -> None:
+        self.use_package_install()
+
+        payload = self.run_health()
+        checks = self.by_id(payload)
+
+        self.assertEqual(payload["overall"], "healthy")
+        self.assertEqual(payload["installOrigin"], "package")
+        self.assertEqual(payload["packageName"], "shinigami-shell")
+        self.assertEqual(payload["packageVersion"], "0.1.1-beta.13")
+        self.assertEqual(checks["package-status"]["status"], "ok")
+        self.assertEqual(checks["package-status"]["value"], "0.1.1beta.13-1")
+        self.assertEqual(checks["package-update"]["value"], "Not checked")
+        self.assertNotIn("source-status", checks)
+        self.assertNotIn("source-update", checks)
+
+    def test_package_health_reports_unstaged_package_upgrade(self) -> None:
+        self.use_package_install(installed_version="0.1.2beta.1-1")
+
+        payload = self.run_health()
+        check = self.by_id(payload)["package-status"]
+
+        self.assertEqual(payload["overall"], "warning")
+        self.assertEqual(check["status"], "warning")
+        self.assertIn("0.1.2beta.1-1 installed", check["value"])
+        self.assertIn("shinigami-shell update --yes", check["action"])
+
+    def test_package_fetch_reports_unpublished_aur_candidate(self) -> None:
+        self.use_package_install()
+
+        payload = self.run_health("--fetch")
+        check = self.by_id(payload)["package-update"]
+
+        self.assertEqual(check["status"], "info")
+        self.assertEqual(check["value"], "Not published")
+
+    def test_package_fetch_reports_available_aur_version(self) -> None:
+        self.use_package_install(available_version="0.1.2beta.1-1")
+
+        payload = self.run_health("--fetch")
+        check = self.by_id(payload)["package-update"]
+
+        self.assertEqual(check["status"], "warning")
+        self.assertIn("0.1.2beta.1-1", check["value"])
+
+    def test_package_fetch_failure_is_bounded_without_git_fallback(self) -> None:
+        self.use_package_install(fetch_error="fixture offline")
+
+        payload = self.run_health("--fetch")
+        checks = self.by_id(payload)
+
+        self.assertEqual(checks["package-update"]["status"], "warning")
+        self.assertEqual(checks["package-update"]["value"], "Check failed")
+        self.assertIn("fixture offline", checks["package-update"]["detail"])
+        self.assertNotIn("source-status", checks)
+
+    def test_package_origin_without_installed_package_is_an_error(self) -> None:
+        self.use_package_install(installed_version=None)
+
+        payload = self.run_health()
+        check = self.by_id(payload)["package-status"]
+
+        self.assertEqual(payload["overall"], "error")
+        self.assertEqual(check["value"], "Not installed")
+
+    def test_dirty_checkout_is_a_warning(self) -> None:
+        (self.source / "README.md").write_text("dirty\n", encoding="utf-8")
+        payload = self.run_health()
+        check = self.by_id(payload)["source-status"]
+        self.assertEqual(payload["overall"], "warning")
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Current · dirty")
+
+    def test_detached_exact_release_tag_is_a_clean_release_checkout(self) -> None:
+        # Lightweight release tags are accepted when they strictly match v<SemVer>.
+        tag = "v0.1.1-beta.15"
+        self.git("tag", tag, cwd=self.source)
+        self.git("checkout", "--detach", tag, cwd=self.source)
+        commit = self.git_output("rev-parse", "HEAD")
+
+        checks = self.by_id(self.run_health())
+        source = checks["source-status"]
+
+        self.assertEqual(source["label"], "Release checkout")
+        self.assertEqual(source["status"], "ok")
+        self.assertEqual(source["value"], f"{tag} · clean")
+        self.assertEqual(source["detail"], f"{tag} · {commit[:10]}")
+        self.assertEqual(source["action"], "")
+        self.assertEqual(checks["source-update"]["value"], "Not checked")
+
+    def test_detached_annotated_release_tag_reports_dirty_checkout(self) -> None:
+        tag = "v0.1.1-beta.15"
+        self.git("tag", "--annotate", tag, "-m", "fixture release", cwd=self.source)
+        self.git("checkout", "--detach", tag, cwd=self.source)
+        (self.source / "README.md").write_text("dirty release\n", encoding="utf-8")
+
+        source = self.by_id(self.run_health())["source-status"]
+
+        self.assertEqual(source["label"], "Release checkout")
+        self.assertEqual(source["status"], "warning")
+        self.assertEqual(source["value"], f"{tag} · dirty")
+        self.assertEqual(source["action"], "Review local changes before updating.")
+
+    def test_attached_branch_at_release_tag_remains_a_development_checkout(self) -> None:
+        self.git("tag", "v0.1.1-beta.15", cwd=self.source)
+
+        source = self.by_id(self.run_health())["source-status"]
+
+        self.assertEqual(source["label"], "Development checkout")
+        self.assertEqual(source["status"], "ok")
+        self.assertEqual(source["value"], "Current · clean")
+
+    def test_detached_untagged_checkout_uses_existing_development_warning(self) -> None:
+        self.git("checkout", "--detach", "HEAD", cwd=self.source)
+
+        source = self.by_id(self.run_health())["source-status"]
+
+        self.assertEqual(source["label"], "Development checkout")
+        self.assertEqual(source["status"], "warning")
+        self.assertEqual(source["value"], "Check failed")
+        self.assertIn("branch", source["action"])
+
+    def test_malformed_and_nonrelease_tags_do_not_claim_a_release(self) -> None:
+        for tag in (
+            "release-1.2.3",
+            "v1.2",
+            "v01.2.3",
+            "v1.2.3-alpha.01",
+        ):
+            self.git("tag", tag, cwd=self.source)
+        self.git("checkout", "--detach", "HEAD", cwd=self.source)
+
+        source = self.by_id(self.run_health())["source-status"]
+
+        self.assertEqual(source["label"], "Development checkout")
+        self.assertEqual(source["status"], "warning")
+        self.assertEqual(source["value"], "Check failed")
+
+    def test_missing_git_metadata_keeps_existing_warning(self) -> None:
+        shutil.rmtree(self.source / ".git")
+
+        source = self.by_id(self.run_health())["source-status"]
+
+        self.assertEqual(source["label"], "Development checkout")
+        self.assertEqual(source["status"], "warning")
+        self.assertEqual(source["value"], "Metadata unavailable")
+
+    def test_release_tag_probe_failure_falls_back_to_development_path(self) -> None:
+        self.git("checkout", "--detach", "HEAD", cwd=self.source)
+        probe = self.module["Probe"](fetch=False)
+        real_git = probe.git
+
+        def git_with_failed_tag_probe(root, arguments, timeout=5):
+            if arguments[:2] == ["tag", "--points-at"]:
+                raise RuntimeError("tag metadata unavailable")
+            return real_git(root, arguments, timeout)
+
+        with patch.object(probe, "source_root", return_value=self.source):
+            with patch.object(probe, "git", side_effect=git_with_failed_tag_probe):
+                probe.check_source()
+
+        source = next(check for check in probe.checks if check.id == "source-status")
+        self.assertEqual(source.label, "Development checkout")
+        self.assertEqual(source.status, "warning")
+        self.assertEqual(source.value, "Check failed")
+
+    def test_health_semver_key_matches_trusted_suite_implementation(self) -> None:
+        if str(REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT))
+        from scripts.shinigami_suite.cli import (  # trusted repository implementation
+            CliError,
+            version_key as canonical_version_key,
+        )
+
+        health_version_key = self.module["version_key"]
+        valid = (
+            "0.1.1-beta.9",
+            "0.1.1-beta.10",
+            "0.1.1-beta.15",
+            "0.1.1-beta.15.1",
+            "0.1.1",
+            "1.0.0+build.7",
+        )
+        for value in valid:
+            with self.subTest(value=value):
+                self.assertEqual(health_version_key(value), canonical_version_key(value))
+        for value in ("1.2", "01.2.3", "1.2.3-alpha.01", "unknown"):
+            with self.subTest(invalid=value):
+                with self.assertRaises(ValueError):
+                    health_version_key(value)
+                with self.assertRaises(CliError):
+                    canonical_version_key(value)
+
+        self.assertLess(health_version_key("0.1.1-beta.9"), health_version_key("0.1.1-beta.10"))
+        self.assertLess(health_version_key("0.1.1-beta.15"), health_version_key("0.1.1-beta.15.1"))
+        self.assertLess(health_version_key("0.1.1-beta.15.1"), health_version_key("0.1.1"))
+        self.assertEqual(health_version_key("1.0.0+aaa"), health_version_key("1.0.0+zzz"))
+
+    def test_latest_release_tag_skips_unknown_tags_deterministically(self) -> None:
+        latest = self.module["latest_release_tag"]
+
+        self.assertEqual(
+            latest(["v0.1.1-beta.9", "unknown", "v0.1.1-beta.10", "v01.2.3"]),
+            "v0.1.1-beta.10",
+        )
+        self.assertEqual(
+            latest(["v1.0.0+aaa", "v1.0.0+zzz"]),
+            "v1.0.0+zzz",
+        )
+        self.assertIsNone(latest(["release-1.0.0", "v1.0", "v1.0.0-alpha.01"]))
+
+    def test_ahead_checkout_is_a_warning(self) -> None:
+        self.commit_source("ahead\n")
+        payload = self.run_health()
+        check = self.by_id(payload)["source-status"]
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Ahead 1 · clean")
+        self.assertIn("ahead 1, behind 0", check["detail"])
+
+    def test_fetch_detects_behind_checkout_without_changing_head(self) -> None:
+        self.push_remote_commit("behind\n")
+        before = self.git_output("rev-parse", "HEAD")
+        payload = self.run_health("--fetch")
+        after = self.git_output("rev-parse", "HEAD")
+        checks = self.by_id(payload)
+        self.assertEqual(before, after)
+        self.assertEqual(checks["source-update"]["status"], "ok")
+        self.assertEqual(
+            checks["source-status"]["value"], "Update available · clean"
+        )
+        self.assertIn("ahead 0, behind 1", checks["source-status"]["detail"])
+
+    def test_fetch_detects_diverged_checkout(self) -> None:
+        self.commit_source("ahead\n")
+        self.push_remote_commit("behind\n")
+        payload = self.run_health("--fetch")
+        check = self.by_id(payload)["source-status"]
+        self.assertEqual(check["status"], "error")
+        self.assertEqual(check["value"], "Diverged · clean")
+        self.assertIn("ahead 1, behind 1", check["detail"])
+
+    def test_missing_upstream_fails_closed(self) -> None:
+        self.git("branch", "--unset-upstream", cwd=self.source)
+        payload = self.run_health()
+        check = self.by_id(payload)["source-status"]
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Check failed")
+        self.assertIn("upstream", check["action"].lower())
+
+    def test_offline_fetch_preserves_cached_source_status(self) -> None:
+        self.git(
+            "remote",
+            "set-url",
+            "origin",
+            str(self.root / "offline.git"),
+            cwd=self.source,
+        )
+        payload = self.run_health("--fetch")
+        checks = self.by_id(payload)
+        self.assertEqual(checks["source-update"]["status"], "warning")
+        self.assertEqual(checks["source-update"]["value"], "Check failed")
+        self.assertEqual(checks["source-status"]["value"], "Current · clean")
+
+    def test_release_without_fetch_does_not_contact_or_import_remote_tags(self) -> None:
+        current = "v0.1.1-beta.15"
+        available = "v0.1.1-beta.15.1"
+        self.git("tag", current, cwd=self.source)
+        self.push_remote_tag(available)
+        self.git("checkout", "--detach", current, cwd=self.source)
+        before = self.git_output("rev-parse", "HEAD")
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(self.git_output("rev-parse", "HEAD"), before)
+        self.assertEqual(self.git_output("tag", "--list", available), "")
+        self.assertEqual(checks["source-status"]["value"], f"{current} · clean")
+        self.assertEqual(checks["source-update"]["status"], "info")
+        self.assertEqual(checks["source-update"]["value"], "Not checked")
+
+    def test_release_fetch_detects_semantically_newer_tag_without_changing_head(self) -> None:
+        current = "v0.1.1-beta.15"
+        available = "v0.1.1-beta.15.1"
+        self.git("tag", current, cwd=self.source)
+        self.push_remote_tag(available)
+        self.git("checkout", "--detach", current, cwd=self.source)
+        before = self.git_output("rev-parse", "HEAD")
+
+        checks = self.by_id(self.run_health("--fetch"))
+
+        self.assertEqual(self.git_output("rev-parse", "HEAD"), before)
+        self.assertEqual(checks["source-status"]["status"], "ok")
+        self.assertEqual(checks["source-status"]["value"], f"{current} · clean")
+        self.assertEqual(checks["source-update"]["status"], "warning")
+        self.assertEqual(
+            checks["source-update"]["value"], f"Update available · {available}"
+        )
+
+    def test_equal_build_metadata_precedence_is_not_an_update(self) -> None:
+        current = "v1.0.0+aaa"
+        self.git("tag", current, cwd=self.source)
+        self.push_remote_tag("v1.0.0+zzz")
+        self.git("checkout", "--detach", current, cwd=self.source)
+
+        checks = self.by_id(self.run_health("--fetch"))
+
+        self.assertEqual(checks["source-status"]["value"], f"{current} · clean")
+        self.assertEqual(checks["source-update"]["status"], "ok")
+        self.assertEqual(checks["source-update"]["value"], "Current")
+
+    def test_release_fetch_failure_preserves_meaningful_source_status(self) -> None:
+        tag = "v0.1.1-beta.15"
+        self.git("tag", tag, cwd=self.source)
+        self.git("checkout", "--detach", tag, cwd=self.source)
+        self.git(
+            "remote",
+            "set-url",
+            "origin",
+            str(self.root / "offline.git"),
+            cwd=self.source,
+        )
+
+        checks = self.by_id(self.run_health("--fetch"))
+
+        self.assertEqual(checks["source-status"]["status"], "ok")
+        self.assertEqual(checks["source-status"]["value"], f"{tag} · clean")
+        self.assertEqual(checks["source-update"]["status"], "warning")
+        self.assertEqual(checks["source-update"]["value"], "Check failed")
+        self.assertNotEqual(checks["source-update"]["value"], "Current")
+
+    def test_hard_fetch_timeout_is_bounded_and_reported(self) -> None:
+        self.use_timed_out_fetch()
+
+        payload = self.run_health("--fetch")
+        check = self.by_id(payload)["source-update"]
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Check failed")
+        self.assertIn("timed out", check["detail"])
+
+    def test_release_fetch_timeout_preserves_meaningful_source_status(self) -> None:
+        tag = "v0.1.1-beta.15"
+        self.git("tag", tag, cwd=self.source)
+        self.git("checkout", "--detach", tag, cwd=self.source)
+        self.use_timed_out_fetch()
+
+        checks = self.by_id(self.run_health("--fetch"))
+
+        self.assertEqual(checks["source-status"]["status"], "ok")
+        self.assertEqual(checks["source-status"]["value"], f"{tag} · clean")
+        self.assertEqual(checks["source-update"]["status"], "warning")
+        self.assertEqual(checks["source-update"]["value"], "Check failed")
+        self.assertIn("timed out", checks["source-update"]["detail"])
+
+    def test_inactive_managed_widget_is_not_a_runtime_failure(self) -> None:
+        self.state["activation"]["enableServices"] = []
+        self.write_state(self.state)
+        self.registry[1]["kinds"] = ["bar-widget", "service"]
+        self.registry[1]["enabled"] = False
+        self.write_json(self.registry_file, self.registry)
+
+        payload = self.run_health()
+        check = self.by_id(payload)["plugin-activation"]
+        self.assertEqual(payload["overall"], "healthy")
+        self.assertEqual(check["status"], "ok")
+        self.assertEqual(check["value"], "1/1 required enabled")
+
+    def test_duplicate_process_and_stale_payload_are_errors(self) -> None:
+        production_config = str(self.omarchy / "shell/shell.qml")
+        self.write_json(
+            self.process_file,
+            [
+                {
+                    "pid": 1,
+                    "command": "quickshell -p /usr/share/omarchy/shell",
+                    "config_path": production_config,
+                },
+                {
+                    "pid": 2,
+                    "command": "quickshell -p /usr/share/omarchy/shell",
+                    "config_path": production_config,
+                },
+            ],
+        )
+        target = self.plugin_dir / "shinigami.state/Service.qml"
+        target.write_text("changed\n", encoding="utf-8")
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        self.assertEqual(payload["overall"], "error")
+        self.assertEqual(checks["quickshell-process"]["status"], "error")
+        self.assertEqual(checks["managed-plugins"]["status"], "error")
+        self.assertIn("modified/stale", checks["managed-plugins"]["detail"])
+        self.assertEqual(checks["runtime-errors"]["status"], "warning")
+        self.assertEqual(checks["runtime-errors"]["value"], "Log unavailable")
+        self.assertIn("ambiguous", checks["runtime-errors"]["detail"])
+
+    def test_argumentless_crash_relaunch_uses_registered_config(self) -> None:
+        self.write_json(
+            self.process_file,
+            [
+                {
+                    "id": self.instance_id,
+                    "pid": 4242,
+                    "command": "/usr/bin/quickshell",
+                    "config_path": str(self.omarchy / "shell/shell.qml"),
+                    "shell_id": "crash-relaunch-fixture",
+                }
+            ],
+        )
+        payload = self.run_health()
+        check = self.by_id(payload)["quickshell-process"]
+        self.assertEqual(payload["overall"], "healthy")
+        self.assertEqual(check["status"], "ok")
+        self.assertEqual(check["value"], "1 production process")
+
+    def test_foreign_instance_does_not_count_as_production(self) -> None:
+        self.write_json(
+            self.process_file,
+            [
+                {
+                    "pid": 4242,
+                    "command": "/usr/bin/quickshell",
+                    "config_path": "/tmp/another-shell/shell.qml",
+                }
+            ],
+        )
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        process = checks["quickshell-process"]
+        self.assertEqual(payload["overall"], "error")
+        self.assertEqual(process["status"], "error")
+        self.assertEqual(process["value"], "0 production processes")
+        self.assertEqual(checks["runtime-errors"]["status"], "warning")
+        self.assertEqual(checks["runtime-errors"]["value"], "Log unavailable")
+        self.assertIn("No exact production process", checks["runtime-errors"]["detail"])
+
+    def test_registered_but_unresponsive_instance_is_an_error(self) -> None:
+        self.environment["SHINIGAMI_HEALTH_PROCESS_LIVE"] = "false"
+        payload = self.run_health()
+        check = self.by_id(payload)["quickshell-process"]
+        self.assertEqual(payload["overall"], "error")
+        self.assertEqual(check["status"], "error")
+        self.assertEqual(check["value"], "Production process unresponsive")
+
+    def test_malformed_instance_registry_reports_one_process_error(self) -> None:
+        self.write_json(self.process_file, {"pid": 4242})
+        payload = self.run_health()
+        process_checks = [
+            item for item in payload["checks"]
+            if item["id"] == "quickshell-process"
+        ]
+        self.assertEqual(len(process_checks), 1)
+        self.assertEqual(process_checks[0]["value"], "Check failed")
+        log_check = self.by_id(payload)["runtime-errors"]
+        self.assertEqual(log_check["status"], "warning")
+        self.assertEqual(log_check["value"], "Log unavailable")
+        self.assertIn("selection failed", log_check["detail"])
+
+    def test_empty_quickshell_registry_sentinel_reports_zero_processes(self) -> None:
+        probe = self.process_probe_from_stdout(QUICKSHELL_EMPTY_REGISTRY)
+        checks = [check for check in probe.checks if check.id == "quickshell-process"]
+        self.assertFalse(probe.process_probe_failed)
+        self.assertEqual(probe.processes, [])
+        self.assertEqual(probe.production_pids, [])
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].value, "0 production processes")
+
+    def test_empty_registry_sentinel_with_nonzero_exit_fails_closed(self) -> None:
+        probe = self.process_probe_from_result(
+            stdout=QUICKSHELL_EMPTY_REGISTRY,
+            stderr="registry unavailable",
+            returncode=23,
+        )
+        checks = [check for check in probe.checks if check.id == "quickshell-process"]
+        self.assertTrue(probe.process_probe_failed)
+        self.assertEqual(probe.processes, [])
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].value, "Check failed")
+        self.assertIn("registry unavailable", checks[0].detail)
+
+    def test_empty_registry_sentinel_timeout_fails_closed(self) -> None:
+        timeout = subprocess.TimeoutExpired(
+            ["qs", "list", "--all", "--json"],
+            0.01,
+            output=QUICKSHELL_EMPTY_REGISTRY,
+        )
+        probe = self.process_probe_from_result(side_effect=timeout)
+        checks = [check for check in probe.checks if check.id == "quickshell-process"]
+        self.assertTrue(probe.process_probe_failed)
+        self.assertEqual(probe.processes, [])
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].value, "Check failed")
+        self.assertIn("timed out", checks[0].detail)
+
+    def test_quickshell_registry_json_arrays_remain_supported(self) -> None:
+        probe = self.process_probe_from_stdout("[]")
+        self.assertFalse(probe.process_probe_failed)
+        self.assertEqual(probe.processes, [])
+
+        instance = {
+            "id": "target-1",
+            "config_path": str(self.omarchy / "shell/shell.qml"),
+            "pid": 4242,
+        }
+        probe = self.process_probe_from_stdout(json.dumps([instance]))
+        self.assertFalse(probe.process_probe_failed)
+        self.assertEqual(probe.processes, [instance])
+        self.assertEqual(probe.production_pids, [4242])
+
+    def test_empty_registry_sentinel_variants_fail_closed(self) -> None:
+        for stdout in INVALID_EMPTY_REGISTRY_OUTPUTS:
+            with self.subTest(stdout=stdout):
+                probe = self.process_probe_from_stdout(stdout)
+                checks = [
+                    check
+                    for check in probe.checks
+                    if check.id == "quickshell-process"
+                ]
+                self.assertTrue(probe.process_probe_failed)
+                self.assertEqual(len(checks), 1)
+                self.assertEqual(checks[0].value, "Check failed")
+
+    def test_bar_mismatch_and_failed_lifecycle_are_errors(self) -> None:
+        self.registry[0]["active"] = False
+        self.registry[2]["active"] = True
+        self.write_json(self.registry_file, self.registry)
+        self.write_json(
+            self.state_dir / "switch-status.json",
+            {
+                "phase": "error",
+                "detail": "verification did not settle",
+                "updatedEpoch": int(__import__("time").time()),
+            },
+        )
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        self.assertEqual(checks["bar-runtime"]["status"], "error")
+        self.assertEqual(checks["lifecycle"]["value"], "Last switch failed")
+
+    def test_runtime_errors_are_attributed_without_cross_owner_issue_filing(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "mixed-runtime-errors.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        checks = self.by_id(self.run_health())
+
+        shinigami = checks["runtime-errors"]
+        self.assertEqual(shinigami["owner"], "shinigami")
+        self.assertEqual(shinigami["pluginId"], "shinigami.control-center")
+        self.assertIn("ControlMainPage.qml:123", shinigami["sourcePath"])
+        self.assertTrue(shinigami["issueEligible"])
+
+        omarchy = checks["runtime-errors-omarchy"]
+        self.assertEqual(omarchy["owner"], "omarchy")
+        self.assertEqual(omarchy["pluginId"], "omarchy.active-window")
+        self.assertIn("/usr/share/omarchy/", omarchy["sourcePath"])
+        self.assertFalse(omarchy["issueEligible"])
+        self.assertIn("cannot file", omarchy["action"])
+
+        third_party = checks["runtime-errors-third-party"]
+        self.assertEqual(third_party["owner"], "third-party")
+        self.assertEqual(third_party["pluginId"], "OmaConnect")
+        self.assertIn("OmaConnect/Main.qml:18", third_party["sourcePath"])
+        self.assertFalse(third_party["issueEligible"])
+        self.assertIn("upstream", third_party["action"])
+
+    def test_authoritative_omarchy_path_wins_over_incidental_plugin_names(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "ownership-precedence.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors-omarchy"]
+        self.assertEqual(check["owner"], "omarchy")
+        self.assertEqual(check["pluginId"], "omarchy.active-window")
+        self.assertFalse(check["issueEligible"])
+
+    def test_omarchy_path_with_unrelated_source_remains_unknown(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "omarchy-unrelated-ambiguity.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+
+    def test_omarchy_path_with_explicit_shinigami_id_remains_unknown(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "omarchy-explicit-ambiguity.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+
+    def test_unanchored_plugin_names_and_urls_remain_unknown(self) -> None:
+        probe = self.module["Probe"](False)
+        attribution = probe.attribute_source(
+            "TypeError: https://user:secret@host/shinigami.control-center/Thing.qml:4"
+        )
+        self.assertEqual(attribution["owner"], "unknown")
+        self.assertNotIn("secret", attribution["sourcePath"])
+
+    def test_unverified_explicit_plugin_id_remains_unknown(self) -> None:
+        probe = self.module["Probe"](False)
+        attribution = probe.attribute_source(
+            "TypeError: plugin: shinigami.not-installed"
+        )
+        self.assertEqual(attribution["owner"], "unknown")
+        self.assertEqual(attribution["pluginId"], "shinigami.not-installed")
+
+    def test_mixed_verified_plugin_owners_remain_unknown(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "ambiguous-ownership.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+        self.assertIn("shinigami.control-center", check["pluginId"])
+        self.assertIn("OmaConnect", check["pluginId"])
+
+    def test_plugin_path_and_explicit_owner_conflict_remains_unknown(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "path-explicit-ambiguity.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+
+    def test_plugin_path_and_unrelated_path_remains_unknown(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "path-unrelated-ambiguity.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+
+    def test_nested_omarchy_name_does_not_override_third_party_root(self) -> None:
+        self.log_file.write_text(
+            (HEALTH_ATTRIBUTION_FIXTURES / "nested-omarchy-name.log")
+            .read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors-third-party"]
+        self.assertEqual(check["owner"], "third-party")
+        self.assertEqual(check["pluginId"], "OmaConnect")
+
+    def test_public_text_redacts_quoted_sensitive_values(self) -> None:
+        probe = self.module["Probe"](False)
+        sanitized = probe.public_text(
+            '"password":"secret value" token="long secret token"'
+        )
+        self.assertNotIn("secret value", sanitized)
+        self.assertNotIn("long secret token", sanitized)
+        escaped = probe.public_text('password="sec\\\"ret"')
+        self.assertNotIn("sec", escaped)
+        self.assertIn("redacted", sanitized)
+
+    def test_unattributed_runtime_error_is_not_issue_eligible(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "TypeError in /home/test/Widget.qml:9\n",
+            encoding="utf-8",
+        )
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["owner"], "unknown")
+        self.assertFalse(check["issueEligible"])
+        self.assertIn("Confirm the source", check["action"])
+
+    def test_sensitive_runtime_error_does_not_report_clean(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "TypeError password=secret-value\n",
+            encoding="utf-8",
+        )
+        checks = self.by_id(self.run_health())
+        self.assertNotIn("runtime-errors", checks)
+        check = checks["runtime-errors-sensitive"]
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Details redacted")
+        self.assertNotIn("secret-value", check["detail"])
+
+    def test_warning_only_log_reports_bounded_sample_without_a_rate(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "WARN scene: file:///home/test/.config/omarchy/plugins/"
+            "shinigami.control-center/Thing.qml:4: fixture warning\n",
+            encoding="utf-8",
+        )
+
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        warning = checks["runtime-warnings"]
+
+        self.assertEqual(payload["overall"], "warning")
+        self.assertEqual(warning["status"], "warning")
+        self.assertEqual(warning["owner"], "shinigami")
+        self.assertFalse(warning["issueEligible"])
+        self.assertEqual(warning["value"], "1 warning(s) in 1 sampled line(s)")
+        self.assertIn("after the latest reload marker", warning["detail"])
+        self.assertIn("Boot/hour rate: unavailable", warning["detail"])
+        self.assertNotIn("runtime-errors", checks)
+        self.assertNotIn("None detected", json.dumps(payload))
+
+    def test_unable_to_assign_qcolor_is_a_shinigami_runtime_error(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "WARN scene: file:///home/test/.config/omarchy/plugins/"
+            "shinigami.control-center/Thing.qml:9: "
+            "Unable to assign [undefined] to QColor\n",
+            encoding="utf-8",
+        )
+
+        checks = self.by_id(self.run_health())
+        error = checks["runtime-errors"]
+
+        self.assertEqual(error["status"], "error")
+        self.assertEqual(error["owner"], "shinigami")
+        self.assertTrue(error["issueEligible"])
+        self.assertIn("Unable to assign [undefined] to QColor", error["detail"])
+        self.assertNotIn("runtime-warnings", checks)
+
+    def test_unknown_and_foreign_warnings_are_not_attributed_to_shinigami(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "WARN: compositor capability is unavailable\n"
+            "WARN scene: /usr/share/omarchy/shell/plugins/bar/widgets/"
+            "ActiveWindow.qml:8: host fixture warning\n"
+            "WARN scene: /home/test/.config/omarchy/plugins/OmaConnect/"
+            "Main.qml:3: extension fixture warning\n",
+            encoding="utf-8",
+        )
+
+        checks = self.by_id(self.run_health())
+        unknown = checks["runtime-warnings-unknown"]
+        omarchy = checks["runtime-warnings-omarchy"]
+        third_party = checks["runtime-warnings-third-party"]
+
+        self.assertEqual(unknown["owner"], "unknown")
+        self.assertIn("not attributed to Shinigami", unknown["action"])
+        self.assertFalse(unknown["issueEligible"])
+        self.assertEqual(omarchy["owner"], "omarchy")
+        self.assertFalse(omarchy["issueEligible"])
+        self.assertEqual(third_party["owner"], "third-party")
+        self.assertEqual(third_party["pluginId"], "OmaConnect")
+        self.assertFalse(third_party["issueEligible"])
+
+    def test_sensitive_runtime_warning_is_redacted_and_not_clean(self) -> None:
+        self.log_file.write_text(
+            "INFO Configuration Loaded\n"
+            "WARN qml: token=private-value\n",
+            encoding="utf-8",
+        )
+
+        payload = self.run_health()
+        checks = self.by_id(payload)
+        check = checks["runtime-errors-sensitive"]
+
+        self.assertEqual(payload["overall"], "warning")
+        self.assertEqual(check["value"], "Details redacted")
+        self.assertNotIn("private-value", json.dumps(payload))
+        self.assertNotIn("runtime-errors", checks)
+        self.assertNotIn("runtime-warnings", checks)
+
+    def test_warning_before_latest_reload_is_not_reported(self) -> None:
+        self.log_file.write_text(
+            "WARN: warning from old configuration\n"
+            "INFO Configuration Loaded\n"
+            "INFO current configuration settled\n",
+            encoding="utf-8",
+        )
+
+        checks = self.by_id(self.run_health())
+
+        self.assertEqual(checks["runtime-errors"]["value"], "None detected")
+        self.assertFalse(any(check_id.startswith("runtime-warnings") for check_id in checks))
+
+    def test_truncated_warning_sample_does_not_infer_boot_or_hour_rate(self) -> None:
+        lines = [
+            "WARN: warning outside the bounded tail",
+            "INFO Configuration Loaded",
+            *[f"INFO filler {index}" for index in range(400)],
+            *[f"WARN: warning inside the bounded tail {index}" for index in range(20)],
+        ]
+        self.log_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        check = self.by_id(self.run_health())["runtime-warnings"]
+
+        self.assertEqual(check["owner"], "unknown")
+        self.assertEqual(check["value"], "20 warning(s) in 400 sampled line(s)")
+        self.assertIn("reload boundary was not present", check["detail"])
+        self.assertIn("Boot/hour rate: unavailable", check["detail"])
+        self.assertIn("12 earlier matching warning(s) omitted", check["detail"])
+        self.assertNotIn("outside the bounded tail", check["detail"])
+        self.assertNotIn("bounded tail 0", check["detail"])
+        self.assertIn("bounded tail 19", check["detail"])
+        self.assertLessEqual(len(check["detail"]), 900)
+
+    def test_logs_are_filtered_redacted_and_bounded(self) -> None:
+        self.log_file.write_text(
+            "TypeError from the previous configuration\n"
+            "INFO Configuration Loaded\n"
+            "TypeError in /home/test/Widget.qml\n"
+            "TypeError password token SSID private-value\n",
+            encoding="utf-8",
+        )
+        payload = self.run_health()
+        check = self.by_id(payload)["runtime-errors"]
+        self.assertEqual(check["status"], "error")
+        self.assertIn("~/Widget.qml", check["detail"])
+        self.assertNotIn("previous configuration", check["detail"])
+        self.assertNotIn("private-value", check["detail"])
+
+    def test_resolved_log_errors_do_not_leak_across_reload(self) -> None:
+        self.log_file.write_text(
+            "ReferenceError from old payload\n"
+            "INFO Configuration Loaded\n"
+            "INFO current payload settled\n",
+            encoding="utf-8",
+        )
+        payload = self.run_health()
+        check = self.by_id(payload)["runtime-errors"]
+        self.assertEqual(check["status"], "ok")
+        self.assertEqual(check["value"], "None detected")
+
+    def test_runtime_log_reuses_cached_instance_without_qs_log(self) -> None:
+        environment = dict(self.environment)
+        environment.pop("SHINIGAMI_HEALTH_PROCESS_FILE", None)
+        environment.pop("SHINIGAMI_HEALTH_PROCESS_LIVE", None)
+        instance = {
+            "id": self.instance_id,
+            "pid": 4242,
+            "config_path": str(self.omarchy / "shell/shell.qml"),
+        }
+
+        def command_result(command, **_kwargs):
+            if command == ["qs", "list", "--all", "--json"]:
+                return Mock(returncode=0, stdout=json.dumps([instance]), stderr="")
+            if command[-2:] == ["shell", "ping"]:
+                return Mock(returncode=0, stdout="ok\n", stderr="")
+            raise AssertionError(f"unexpected command: {command}")
+
+        runner = Mock(side_effect=command_result)
+        probe_class = self.module["Probe"]
+        with patch.dict(os.environ, environment, clear=True):
+            probe = probe_class(fetch=False)
+            with patch.dict(probe_class.load_processes.__globals__, {"run": runner}):
+                probe.load_processes()
+                probe.check_processes()
+                probe.check_logs()
+
+        commands = [call.args[0] for call in runner.call_args_list]
+        self.assertEqual(commands.count(["qs", "list", "--all", "--json"]), 1)
+        self.assertFalse(any(command[:2] == ["qs", "log"] for command in commands))
+        self.assertEqual(probe.production_instance_id, self.instance_id)
+        self.assertEqual(
+            next(check for check in probe.checks if check.id == "runtime-errors").value,
+            "None detected",
+        )
+
+    def assert_log_unavailable(self, detail: str) -> None:
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["status"], "warning")
+        self.assertEqual(check["value"], "Log unavailable")
+        self.assertIn(detail, check["detail"])
+
+    def read_runtime_log_with_read_sizes(self) -> tuple[str, list[int]]:
+        probe = self.module["Probe"](fetch=False)
+        probe.production_instance_id = self.instance_id
+        real_read = os.read
+        read_sizes: list[int] = []
+
+        def counted_read(fd: int, size: int) -> bytes:
+            read_sizes.append(size)
+            return real_read(fd, size)
+
+        with patch.dict(os.environ, self.environment, clear=True):
+            with patch.object(os, "read", side_effect=counted_read):
+                raw = probe.read_runtime_log()
+        return raw, read_sizes
+
+    def test_empty_runtime_text_log_is_unavailable(self) -> None:
+        for content in ("", "\n \t\n"):
+            with self.subTest(content=repr(content)):
+                self.log_file.write_text(content, encoding="utf-8")
+                self.assert_log_unavailable("empty sample")
+
+    def test_missing_runtime_text_log_is_unavailable(self) -> None:
+        self.log_file.unlink()
+        self.assert_log_unavailable("No such file")
+
+    def test_symlinked_runtime_text_log_is_unavailable(self) -> None:
+        target = self.root / "decoy.log"
+        target.write_text("TypeError from decoy\n", encoding="utf-8")
+        self.log_file.unlink()
+        self.log_file.symlink_to(target)
+        self.assert_log_unavailable("symbolic links")
+
+    def test_symlinked_runtime_log_parent_is_unavailable(self) -> None:
+        target = self.root / "decoy-instance"
+        target.mkdir()
+        (target / "log.log").write_text("TypeError from decoy\n", encoding="utf-8")
+        shutil.rmtree(self.log_dir)
+        self.log_dir.symlink_to(target, target_is_directory=True)
+        self.assert_log_unavailable("Not a directory")
+
+    def test_runtime_log_fifo_is_rejected_without_blocking(self) -> None:
+        self.log_file.unlink()
+        os.mkfifo(self.log_file)
+        self.assert_log_unavailable("not a regular file")
+
+    def test_foreign_owned_runtime_log_is_unavailable(self) -> None:
+        real_fstat = os.fstat
+
+        def foreign_file(fd):
+            metadata = real_fstat(fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                return metadata
+            values = list(metadata)
+            values[4] = os.getuid() + 1
+            return os.stat_result(values)
+
+        probe_class = self.module["Probe"]
+        with patch.dict(os.environ, self.environment, clear=True):
+            probe = probe_class(fetch=False)
+            probe.production_pids = [4242]
+            probe.production_instance_id = self.instance_id
+            with patch.object(os, "fstat", side_effect=foreign_file):
+                probe.check_logs()
+        check = next(check for check in probe.checks if check.id == "runtime-errors")
+        self.assertEqual(check.value, "Log unavailable")
+        self.assertIn("foreign owner", check.detail)
+
+    def test_malformed_instance_id_is_unavailable(self) -> None:
+        processes = json.loads(self.process_file.read_text(encoding="utf-8"))
+        processes[0]["id"] = "../decoy"
+        self.write_json(self.process_file, processes)
+        self.assert_log_unavailable("missing or malformed")
+
+    def test_runtime_log_read_counts_at_size_boundaries(self) -> None:
+        full_limit = self.module["LOG_FULL_READ_LIMIT"]
+        tail_bytes = self.module["LOG_TAIL_BYTES"]
+        chunk_size = 64 * 1024
+        cases = (
+            (full_limit - 1, 128, full_limit - 1),
+            (full_limit, 128, full_limit),
+            (full_limit + 1, 16, tail_bytes),
+        )
+
+        for file_size, expected_calls, expected_bytes in cases:
+            with self.subTest(file_size=file_size):
+                with self.log_file.open("wb") as handle:
+                    handle.truncate(file_size)
+                _raw, read_sizes = self.read_runtime_log_with_read_sizes()
+                self.assertEqual(len(read_sizes), expected_calls)
+                self.assertEqual(sum(read_sizes), expected_bytes)
+                self.assertTrue(all(size <= chunk_size for size in read_sizes))
+
+    def test_large_runtime_log_removes_first_partial_line(self) -> None:
+        full_limit = self.module["LOG_FULL_READ_LIMIT"]
+        tail_bytes = self.module["LOG_TAIL_BYTES"]
+        file_size = full_limit + 256
+        offset = file_size - tail_bytes
+        with self.log_file.open("wb") as handle:
+            handle.truncate(file_size)
+            handle.seek(offset - len(b"discard-"))
+            handle.write(
+                b"discard-partial line\nINFO Configuration Loaded\n"
+                b"TypeError in /home/test/Tail.qml:7\n"
+            )
+
+        raw, _read_sizes = self.read_runtime_log_with_read_sizes()
+        self.assertTrue(raw.startswith("INFO Configuration Loaded\n"))
+        self.assertNotIn("partial line", raw)
+
+        check = self.by_id(self.run_health())["runtime-errors"]
+        self.assertEqual(check["status"], "error")
+        self.assertIn("~/Tail.qml:7", check["detail"])
+        self.assertNotIn("partial line", check["detail"])
+
+    def test_runtime_log_read_stays_at_open_time_size_when_file_grows(self) -> None:
+        initial = self.log_file.stat()
+        real_fstat = os.fstat
+        appended = False
+
+        def append_after_stat(fd):
+            nonlocal appended
+            metadata = real_fstat(fd)
+            if stat.S_ISREG(metadata.st_mode) and not appended:
+                appended = True
+                with self.log_file.open("ab") as handle:
+                    handle.write(b"TypeError appended after stat\n")
+                return initial
+            return metadata
+
+        probe_class = self.module["Probe"]
+        with patch.dict(os.environ, self.environment, clear=True):
+            probe = probe_class(fetch=False)
+            probe.production_pids = [4242]
+            probe.production_instance_id = self.instance_id
+            with patch.object(os, "fstat", side_effect=append_after_stat):
+                probe.check_logs()
+        check = next(check for check in probe.checks if check.id == "runtime-errors")
+        self.assertTrue(appended)
+        self.assertEqual(check.value, "None detected")
+
+    def test_manual_fetch_refreshes_only_remote_refs(self) -> None:
+        before = subprocess.run(
+            ["git", "-C", str(self.source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        payload = self.run_health("--fetch")
+        after = subprocess.run(
+            ["git", "-C", str(self.source), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        self.assertEqual(before, after)
+        self.assertEqual(self.by_id(payload)["source-update"]["status"], "ok")
+
+
+if __name__ == "__main__":
+    unittest.main()

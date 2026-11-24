@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "example.shinigami-test.regex-prefix-ipc",
+  "name": "Shinigami regex-prefix IPC fixture",
+  "version": "1.0.0",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"}
+}

@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+source "$repo_root/tests/lib/host-diagnostics.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
+tmpdir=$(mktemp -d /tmp/shinigami-workspaces.XXXXXX)
+trap 'rm -rf -- "$tmpdir"' EXIT
+fixture_home="$tmpdir/home"
+mkdir -m 0700 "$fixture_home"
+# QML Style reads HOME directly for shell.toml. Never let a user's font or
+# spacing overrides change the fixed-geometry fixture expectations.
+fixture_env=(
+  HOME="$fixture_home"
+  XDG_CONFIG_HOME="$fixture_home/.config"
+  XDG_CACHE_HOME="$fixture_home/.cache"
+  XDG_DATA_HOME="$fixture_home/.local/share"
+  XDG_STATE_HOME="$fixture_home/.local/state"
+)
+
+fail() {
+  printf 'workspaces plugin regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -d $omarchy_path/shell ]] || fail "Omarchy shell not found: $omarchy_path/shell"
+[[ -x $quickshell_bin ]] || fail "Quickshell not found: $quickshell_bin"
+mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures"
+chmod 700 "$tmpdir/runtime"
+cp -a -- "$repo_root/shinigami.workspaces" "$tmpdir/workspaces"
+shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
+printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+  > "$tmpdir/shinigami.state/.shinigami-managed.json"
+cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
+cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"
+install -m 0644 "$repo_root/tests/workspaces-plugin-smoke.qml" "$tmpdir/shell.qml"
+install -m 0644 "$repo_root/tests/workspace-lazy-paint.qml" "$tmpdir/"
+install -m 0644 "$repo_root/tests/fixtures/WorkspaceTestPanel.qml" \
+  "$tmpdir/WorkspaceTestPanel.qml"
+
+set +e
+output=$(timeout 8 env \
+  "${fixture_env[@]}" \
+  QT_QPA_PLATFORM=offscreen \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "component smoke exited $rc"
+grep -F 'workspaces plugin smoke passed' <<<"$output" >/dev/null \
+  || fail "success marker missing"
+
+# Execute actual WorkspacePanel/Content; replace only its window shell.
+cp "$repo_root/tests/fixtures/ShinigamiPanelTest.qml" "$tmpdir/workspaces/ShinigamiPanel.qml"
+cp "$repo_root/tests/workspaces-runtime-smoke.qml" "$tmpdir/runtime-shell.qml"
+mkdir -m 700 "$tmpdir/scoped-runtime"
+map_root="$fixture_home/.local/state/omarchy"
+mkdir -p "$map_root/monitors"
+for map_case in runtime new old neither; do
+rm -f "$map_root/monitors/workspaces" "$map_root/monitor-workspaces"
+map_file=$([[ $map_case == new ]] && echo monitors/workspaces || echo monitor-workspaces)
+if [[ $map_case == new || $map_case == old ]]; then
+  printf '0\teDP-1\tpanel\n1\tDP-1\texternal\n2\t\tunplugged\n' > "$map_root/$map_file"
+fi
+set +e
+runtime_output=$(timeout 8 env \
+  "${fixture_env[@]}" SHINIGAMI_WORKSPACE_MAP_CASE="$map_case" \
+  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/scoped-runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir/runtime-shell.qml" 2>&1)
+runtime_rc=$?
+set -e
+printf '%s\n' "$runtime_output"
+[[ $runtime_rc -eq 0 ]] || fail "scoped workspace smoke exited $runtime_rc"
+grep -F 'workspaces runtime smoke passed' <<<"$runtime_output" >/dev/null \
+  || fail "scoped workspace marker missing"
+if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$runtime_output"; then
+  fail "scoped workspace QML error"
+fi
+done
+
+cp -a "$repo_root/shinigami.memory" "$tmpdir/memory"
+mkdir -p "$tmpdir/geometry" "$tmpdir/geometry-runtime"
+chmod 700 "$tmpdir/geometry-runtime"
+cp "$repo_root/shinigami.bar/styles/shinigami/VisualTokens.qml" \
+  "$tmpdir/geometry/VisualTokens.qml"
+cp "$repo_root/tests/workspaces-geometry-regression.qml" "$tmpdir/geometry-shell.qml"
+set +e
+geometry_output=$(timeout 8 env \
+  "${fixture_env[@]}" \
+  QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software QT_SCALE_FACTOR=1 WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/geometry-runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir/geometry-shell.qml" 2>&1)
+geometry_rc=$?
+set -e
+printf '%s\n' "$geometry_output"
+[[ $geometry_rc -eq 0 ]] || fail "workspace geometry exited $geometry_rc"
+grep -F 'workspaces geometry regression passed' <<<"$geometry_output" >/dev/null \
+  || fail "workspace geometry marker missing"
+if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$geometry_output"; then
+  fail "workspace geometry QML error"
+fi
+
+rg -q 'serviceFor\("shinigami\.workspaces"\)' \
+  "$repo_root/shinigami.workspaces/BarWidget.qml" \
+  || fail "bar widget does not resolve the shared workspace service"
+if rg -q 'bar\.(workspaceService|workspaceActions)' \
+    "$repo_root/shinigami.workspaces"; then
+  fail "workspace plugin depends on transitional bar-owned feature state"
+fi
+rg -q '^import Quickshell\.Hyprland$' \
+  "$repo_root/shinigami.workspaces/WorkspaceService.qml" \
+  || fail "workspace service does not own the Hyprland model"
+rg -q 'launcher\.command = command' \
+  "$repo_root/shinigami.workspaces/WorkspaceActions.qml" \
+  || fail "workspace action is not passed as an argument vector"
+if rg -q 'bash|-c|bar\.run' \
+    "$repo_root/shinigami.workspaces/WorkspaceActions.qml"; then
+  fail "workspace action crosses a shell or bar-command boundary"
+fi
+rg -q 'contentWidth: fittedContentWidth\(240\)' \
+  "$repo_root/shinigami.workspaces/WorkspacePanel.qml" \
+  || fail "workspace panel does not retain the compact V1 width"
+rg -q 'height: 30' \
+  "$repo_root/shinigami.workspaces/WorkspacePanelContent.qml" \
+  || fail "workspace rows do not retain the compact V1 height"
+
+for v2_style in kanji rings aurora pacman; do
+  rg -Fq "root.renderStyle === \"$v2_style\"" \
+    "$repo_root/shinigami.workspaces/BarWidget.qml" \
+    || fail "V2 workspace style is missing: $v2_style"
+done
+pacman_marker="$repo_root/shinigami.state/lib/presentation/PacmanWorkspaceMarker.qml"
+rg -Fq 'text: root.focused ? "󰮯" : "󰊠"' \
+  "$pacman_marker" \
+  || fail "Pacman/ghost state glyphs drifted from the V2.1-2 reference"
+rg -Fq 'id: emptyPellet' "$pacman_marker" \
+  || fail "Pacman empty workspace pellet is missing"
+rg -Fq 'visible: !root.focused && !root.occupied' "$pacman_marker" \
+  || fail "Pacman pellet no longer represents empty workspaces"
+rg -Fq 'readonly property int pelletSize: Commons.Style.space(5)' \
+  "$pacman_marker" \
+  || fail "Pacman empty workspace pellet does not follow theme scaling"
+rg -Fq 'font.pixelSize: root.glyphSize' "$pacman_marker" \
+  || fail "Pacman glyph does not follow theme scaling"
+rg -Fq 'font.family: "JetBrainsMono Nerd Font"' "$pacman_marker" \
+  || fail "Pacman marker does not use the reference Nerd Font"
+rg -Fq 'paletteColor("color03"' \
+  "$repo_root/shinigami.workspaces/BarWidget.qml" \
+  || fail "Pacman does not follow the colors.toml yellow role"
+for neutral_contract in \
+    'readonly property color pacmanOccupiedColor: widgetInk' \
+    'readonly property color pacmanEmptyColor: widgetInk' \
+    'readonly property color pacmanHoverColor: widgetInk'; do
+  rg -Fq "$neutral_contract" \
+    "$repo_root/shinigami.workspaces/BarWidget.qml" \
+    || fail "Pacman ghosts do not follow the selected bar color: $neutral_contract"
+done
+if rg -q 'paletteColor\("color0[16]"' \
+    "$repo_root/shinigami.workspaces/BarWidget.qml"; then
+  fail "Pacman ghosts still use dedicated colors.toml accents"
+fi
+for motion_contract in \
+    'id: pacmanTravel' \
+    'property: "pacmanTravelX"' \
+    'property: "pacmanMouthClosure"' \
+    'property: "pacmanEatProgress"' \
+    'property int pacmanTravelSteps: 1' \
+    'Math.min(720, 320 + pacmanTravelSteps * 100)' \
+    'readonly property real pacmanMaxMouthClosure: 0.82' \
+    'loops: root.pacmanBiteCount' \
+    'id: pacmanRunnerGlyph' \
+    'text: "󰮯"' \
+    'id: pacmanMouthFill' \
+    'context.arc(centerX, centerY, radius' \
+    'readonly property int pacmanEatDuration: 240' \
+    'root.finishPacmanTravel()'; do
+  rg -Fq "$motion_contract" \
+    "$repo_root/shinigami.workspaces/BarWidget.qml" \
+    || fail "Pacman eat animation is missing: $motion_contract"
+done
+rg -Fq 'readonly property real numberMarkerRadius:' \
+  "$repo_root/shinigami.workspaces/BarWidget.qml" \
+  || fail "workspace widget does not expose the V1/V2 number radius contract"
+rg -Fq 'readonly property real frameMarkerRadius:' \
+  "$repo_root/shinigami.workspaces/BarWidget.qml" \
+  || fail "workspace widget does not expose the V1/V2 frame radius contract"
+if rg -Fq 'readonly property string versionStyle:' \
+    "$repo_root/shinigami.workspaces/BarWidget.qml"; then
+  fail "workspace widget still downgrades shared styles in V1"
+fi
+if rg -q 'root\.renderStyle === "(frame|aurora-streak)"' \
+    "$repo_root/shinigami.workspaces/BarWidget.qml"; then
+  fail "non-reference workspace style remains in the Shinigami renderer"
+fi
+
+printf 'workspaces plugin regression passed\n'

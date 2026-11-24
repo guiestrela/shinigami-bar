@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.network",
+  "name": "Shinigami Network",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Native Shinigami NetworkManager ownership, telemetry, actions, QR, and speed testing.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami network",
+    "description": "Network status, Wi-Fi profiles, DNS, and speed test",
+    "category": "Network",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G11",
+    "capabilities": [
+      "network"
+    ],
+    "preferredRegion": "right",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

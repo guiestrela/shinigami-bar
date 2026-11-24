@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.ai",
+  "name": "Shinigami AI Usage",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami Claude, Codex, and OpenCode usage presentation.",
+  "kinds": ["bar-widget", "service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami AI usage",
+    "description": "Selected AI provider usage and detailed limits",
+    "category": "System",
+    "defaultSection": "left",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G7",
+    "capabilities": ["model-usage"],
+    "preferredRegion": "left",
+    "requires": ["shinigami.state"],
+    "recommends": [],
+    "hostContracts": ["omarchy.agents", "omarchy.model-usage"]
+  }
+}

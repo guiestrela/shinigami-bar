@@ -1,0 +1,206 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Quickshell
+import "reactor" as Reactor
+import "audio" as Audio
+
+ShellRoot {
+  id: root
+
+  property int phase: 0
+  property int ticks: 0
+  property var lastEvent: null
+  property int raisedCount: 0
+  property int clearedCount: 0
+
+  function fail(message) {
+    console.error("reactor-plugin-smoke:", message)
+    Qt.exit(1)
+    throw new Error(message)
+  }
+
+  QtObject {
+    id: fakeState
+    property bool ready: true
+    property int revision: 0
+    property var config: ({ reactor: { mode: 0 } })
+    function setReactorMode(value) {
+      const mode = Number(value)
+      if (!Number.isInteger(mode) || mode < 0 || mode > 8) return false
+      config = ({ reactor: { mode: mode } })
+      revision++
+      return true
+    }
+  }
+
+  QtObject {
+    id: fakeWorkspace
+    property int focusedId: 1
+    function workspaceState(_id) { return ({ windowCount: 2 }) }
+  }
+
+  QtObject {
+    id: fakePendingModel
+    property int count: 0
+    function get(_index) { return null }
+  }
+
+  QtObject {
+    id: fakeNotifications
+    property var pendingModel: fakePendingModel
+  }
+
+  QtObject {
+    id: fakeStatus
+    property bool notificationsSilenced: false
+    property string voxtypeState: "idle"
+    property var notificationService: fakeNotifications
+  }
+
+  QtObject {
+    id: fakePower
+    property bool hasBattery: true
+    property bool discharging: false
+    property int percent: 80
+  }
+
+  QtObject {
+    id: fakeAi
+    property var providers: []
+    function usagePercent(_provider) { return 0 }
+  }
+
+  QtObject { id: fakeNetwork; property string kind: "wifi" }
+
+  Audio.Service {
+    id: fakeAudio
+    shell: fakeShell
+    manifest: ({id: "shinigami.audio", version: "0.2.5", kinds: ["service"]})
+    nativeBackendEnabled: false
+  }
+
+  QtObject {
+    id: fakeUpdate
+    property int totalUpdateCount: 0
+  }
+
+  QtObject {
+    id: fakeMedia
+    property string title: ""
+    property string artist: ""
+    property string album: ""
+  }
+
+  QtObject {
+    id: fakeShell
+    property var bar: null
+    function serviceFor(pluginId) {
+      if (pluginId === "shinigami.state") return fakeState
+      if (pluginId === "shinigami.reactor") return reactorService
+      if (pluginId === "shinigami.workspaces") return fakeWorkspace
+      if (pluginId === "shinigami.status") return fakeStatus
+      if (pluginId === "shinigami.power-state") return fakePower
+      if (pluginId === "shinigami.ai") return fakeAi
+      if (pluginId === "shinigami.network") return fakeNetwork
+      if (pluginId === "shinigami.audio") return fakeAudio
+      if (pluginId === "shinigami.update-center") return fakeUpdate
+      return null
+    }
+    function firstPartyServiceFor(pluginId) {
+      if (pluginId === "omarchy.media") return fakeMedia
+      return null
+    }
+  }
+
+  Reactor.Service {
+    id: reactorService
+    manifest: ({id: "shinigami.reactor", version: "0.2.5", kinds: ["service"]})
+    shell: fakeShell
+    runtimeProbesEnabled: false
+  }
+
+  Connections {
+    target: reactorService
+    function onEventRaised(event) {
+      root.lastEvent = event
+      root.raisedCount++
+    }
+    function onCleared() { root.clearedCount++ }
+  }
+
+  Timer {
+    id: watchdog
+    interval: 6000
+    running: true
+    onTriggered: root.fail("timeout in phase " + root.phase)
+  }
+
+  Timer {
+    interval: 60
+    repeat: true
+    running: true
+    onTriggered: {
+      root.ticks++
+      if (root.ticks < 3) return
+
+      if (root.phase === 0) {
+        if (!reactorService.ready || reactorService.mode !== 0
+            || reactorService.backendLoaded || reactorService.backendKind !== "none"
+            || reactorService.runTest("text", "NO|BACKEND"))
+          return root.fail("mode-zero gating")
+        if (!fakeAudio.backendAdmitted || fakeAudio.report(root, true, false) !== true
+            || !fakeAudio.ready)
+          return root.fail("Audio runtime admission or report rejected")
+        reactorService.setMode(7)
+        root.phase++
+        root.ticks = 0
+      } else if (root.phase === 1) {
+        if (reactorService.mode !== 7 || !reactorService.backendLoaded
+            || reactorService.backendKind !== "events"
+            || reactorService.backend.audioService !== fakeAudio
+            || reactorService.backend.networkService !== fakeNetwork)
+          return root.fail("event backend dependency resolution")
+        if (!reactorService.runTest("text-short", "LOCAL|EVENT"))
+          return root.fail("event test rejected")
+        root.phase++
+        root.ticks = 0
+      } else if (root.phase === 2) {
+        if (root.raisedCount !== 1 || !root.lastEvent
+            || root.lastEvent.left !== "LOCAL" || root.lastEvent.right !== "EVENT"
+            || reactorService.eventHistory.length !== 1)
+          return root.fail("event forwarding")
+        reactorService.clear()
+        reactorService.setMode(8)
+        root.phase++
+        root.ticks = 0
+      } else if (root.phase === 3) {
+        if (root.clearedCount !== 2 || reactorService.mode !== 8
+            || !reactorService.backendLoaded
+            || reactorService.backendKind !== "quotes"
+            || !reactorService.runTest("quote", ""))
+          return root.fail("quote backend activation")
+        root.phase++
+        root.ticks = 0
+      } else if (root.phase === 4) {
+        if (root.raisedCount !== 2 || !root.lastEvent
+            || root.lastEvent.profile !== "quote"
+            || reactorService.eventCount !== 1)
+          return root.fail("quote forwarding")
+        reactorService.setMode(0)
+        root.phase++
+        root.ticks = 0
+      } else {
+        if (reactorService.mode !== 0 || reactorService.backendLoaded
+            || reactorService.backendKind !== "none" || fakeState.revision !== 3)
+          return root.fail("backend teardown")
+        if (fakeAudio.release(root) !== true || fakeAudio.ready)
+          return root.fail("audio snapshot cleanup")
+        stop()
+        watchdog.stop()
+        console.log("reactor plugin smoke passed")
+        Qt.quit()
+      }
+    }
+  }
+}

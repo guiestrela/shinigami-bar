@@ -1,0 +1,213 @@
+# Release workflow
+
+Status: beta package runbook
+
+`VERSION`, package metadata, the suite version in
+[`../../contracts/plugin-suite-v1.json`](../../contracts/plugin-suite-v1.json),
+all 27 plugin manifests, PKGBUILD, `.SRCINFO`, changelog, release commit, and Git
+tag must agree.
+
+## Prepare
+
+Provisioning, runner registration, user-service/session setup, exact durable
+baselines, and repository security settings follow the
+[validation-host runbook](validation-host.md). It is a plan, not a bootstrap or
+permission to change a host; each operation needs separate maintainer approval.
+
+1. Confirm the target and remaining gates in
+   [release readiness](../release-readiness.md).
+2. Update the suite version and every plugin manifest together.
+3. Move user-visible changelog entries into the target version. Set its agreed
+   release date before preparing the package checksum and final exact-commit
+   release evidence.
+4. Add concise, versioned notes under `.github/release-notes/`.
+5. Update user guides, architecture contracts, compatibility evidence, and
+   screenshot placeholders or captures affected by the release.
+6. Confirm the repository visibility and remaining public-release blockers.
+7. Keep planned OPR publication separate from source installation and behind
+   the source, package, and clean-build gates in [packaging](packaging.md).
+8. On host baseline change, rerun every retained update arm before tagging;
+   do not silently drop an arm or choose an older rolling predecessor.
+9. Re-pin forward compatibility to current `quattro` with `scripts/generate-forward-baseline.py`; update pins in `tests/lib/baselines.sh`, `tests/baseline-contract-regression.sh`, `tests/quattro-contract-regression.sh`, `tests/panel-window-geometry-regression.sh`, `scripts/collect-release-evidence`, `tests/documentation-regression.py`, `AGENTS.md`, `docs/getting-started.md`, `docs/release-readiness.md`, `docs/architecture/quattro-compatibility.md`, `docs/development/testing.md`, `docs/development/validation-host.md`, and `docs/development/release.md`, provision the clean runner checkout `~/.local/share/shinigami/validation-baselines/omarchy-forward-compat-<sha>`, and have the maintainer update Actions variable `SHINIGAMI_FORWARD_COMPAT_OMARCHY_PATH`. The bar-host layout and monitor-shape checks derive capabilities from the pinned host and need no id/revision-list edit.
+
+## Version pin categories
+
+- Current-candidate expectations in the package, suite-lifecycle, and shared
+  runtime-import Python tests read `VERSION`; package-origin strings follow it.
+  Current public identity lookups use `public-<prerelease>` (for example,
+  `public-beta.16`). This is a naming convention, not an admission shortcut.
+- Published predecessor versions, revisions, payload digests, and their exact
+  test tables remain explicit immutable pins, including the published release
+  whose version is still in `VERSION` while the next candidate is prepared.
+  Add the next candidate identity separately; never relabel an old payload.
+- Negative, downgrade, SemVer, and inert-fixture versions describe their own
+  scenarios. Do not globally replace version strings across tests.
+- Plugin manifests and code-bound QML `implementationVersion` literals remain
+  independent identities, updated together with release metadata. Do not load
+  a running provider's identity from a newly loaded manifest or add a runtime
+  version loader. Canonical and vendored copies must stay synchronized.
+- Reading candidate expectations from `VERSION` does not regenerate lifecycle
+  pins or validate payload bytes. Recompute the final candidate payload and
+  review exact admission identities during the authorized version/pin step;
+  modified product bytes with old pins must still fail identity checks.
+
+## Rolling predecessor selection and freeze
+
+Before candidate freeze, review the repository's actual GitHub releases and
+select the most recently published non-draft release by `published_at`, including
+prereleases. Do not use `/releases/latest`, tag order, or the highest admission ID;
+a tag without a published release is not eligible.
+Record version, tag, peeled commit, payload digest, release ID/URL, publication
+time, and prerelease status in `tests/fixtures/release-predecessor.json`. Verify
+the archived plugin bytes and admit that exact identity before freezing the file.
+Recheck publication and remote tag identity before release evidence; a changed
+selection requires review and another full runtime gate, not an in-run fetch.
+The runtime gate consumes only this offline reference and checks the local tag
+and admission pin. Its candidate is committed `HEAD`, never dirty plugin bytes.
+The rolling checkout arm replaces the former latest fixed arm; keep Beta 15 and
+15.2, the historical package arm, and the fresh arm: exactly 32 shell generations.
+
+## Prepare the package checksum
+
+Finish every file included in the release payload before pinning its checksum.
+Update README install/update versions and all shipped `docs/` first. These files
+change the archive SHA-256 even when the plugin-only suite payload is unchanged;
+recompute plugin digests to check candidate pins, but do not confuse those pins
+with the archive checksum. Versioned notes under `.github/` are not archived.
+Replace the target `CHANGELOG.md` heading's `Unreleased` with the agreed release
+date before this first checksum build: the changelog is archived too. A later
+date change requires a new checksum and clean-commit rebuild, with release
+evidence bound to the resulting commit.
+Build the candidate twice and copy its reported SHA-256 into
+`packaging/aur/PKGBUILD`, then regenerate `.SRCINFO`:
+
+```bash
+scripts/build-release-archive --allow-dirty --check-reproducible
+cd packaging/aur
+makepkg --printsrcinfo > .SRCINFO
+cd ../..
+scripts/check-aur-package
+```
+
+`packaging/aur/` is excluded from the archive specifically so updating its
+checksum cannot change the bytes being hashed.
+
+## Validate the source tree
+
+Review source hygiene in the Git checkout:
+
+```bash
+git status --short
+git diff --check
+python3 tests/test_package_release.py
+python3 tests/test_shinigami_suite.py
+python3 tests/test_lifecycle_admission.py
+python3 tests/test_shinigami_health.py
+./scripts/rehearse-aur-package
+```
+
+This is a read-only source review, not runtime acceptance.
+
+## Validate on the internal validation system
+
+Run the complete contract against all four pinned Quattro proof axes. Every
+external baseline variable must name a clean, canonical, absolute Git checkout
+root at the revision pinned by its baseline manifest. In particular,
+`SHINIGAMI_INSTALLED_SOURCE_OMARCHY_PATH` must be a clean absolute checkout at
+`ac2690cd7be4f47e4a255f5e2e78d904d436b068`; tracked, staged, untracked, or
+submodule dirt fails the gate.
+
+```bash
+cd /path/to/shinigami
+./tests/omarchy-installed-package-contract-regression.sh
+SHINIGAMI_INSTALLED_SOURCE_OMARCHY_PATH=/path/to/omarchy-v4.5.0 \
+  ./tests/omarchy-installed-source-parity-contract-regression.sh
+SHINIGAMI_NATIVE_CATALOG_OMARCHY_PATH=/path/to/omarchy-v4.0.4 \
+  python3 tests/native-catalog-resource-regression.py
+SHINIGAMI_AGENTS_OMARCHY_PATH=/path/to/omarchy-v4.5.0 \
+  ./tests/omarchy-agents-contract-regression.sh
+SHINIGAMI_FORWARD_COMPAT_OMARCHY_PATH=/path/to/omarchy-forward-compat-551dc629 \
+  ./tests/omarchy-forward-compat-contract-regression.sh
+```
+
+The forward checkout must be exactly `551dc62969046709e7c6176dbdbccacce580a487`.
+Private forward-alignment patches do not authorize runner reprovisioning,
+Actions-variable changes, installation, or publication. Record Quickshell
+package provenance: active package/parity/forward gates require Omarchy-repository
+`0.3.2.r7.g2b4501a-1`. Historical `0.3.1-1` fixtures and edge `0.3.2-6`
+live acceptance are separate evidence.
+
+The release-evidence runner preflights all four external checkouts before any long host gate. Every path component must be canonical and must not be a symbolic link. The runner passes the accepted canonical paths to every gate. It verifies each checkout root, pinned HEAD commit, Git tree, cleanliness, complete tracked/untracked working-tree digest, file count, file type, and mode. Malformed, relative, missing, dirty, or wrong-revision inputs fail closed. The NativeCatalog resource regression is a required gate and resolves its unchanged pinned 4.0.4 shell assertion from `SHINIGAMI_NATIVE_CATALOG_OMARCHY_PATH/shell`; its existing warmup and resource ceilings are not release-runner overrides.
+
+The candidate and all external-baseline identities are revalidated immediately before and after every evidence gate and once more after the final gate. Candidate content, mode, staged-state, untracked-state, commit, or tree drift and baseline cleanliness, revision, tree, content, or mode drift invalidate the evidence. These checks detect drift present at a validation boundary; they do not detect an input that is changed and restored entirely while one gate is running. The validation runner therefore remains a trusted, access-controlled system, and concurrent writers must be excluded for the full run. Gate commands are repository-owned tests from the exact reviewed commit, so a malicious gate means the candidate itself is already compromised and is outside the collector's threat model. Same-UID replacement of in-progress log or archive paths and symlink manipulation of output-parent directories are accepted release-machine risks; use a clean, non-symlinked output tree with no untrusted or concurrent writers.
+
+Every evidence gate has a 30-minute process-group timeout. Raw output and retained redacted output are each limited to 8,388,608 bytes per gate and 67,108,864 bytes per run. Redaction occurs while the runner reads output. A start failure, nonzero exit, timeout, byte-limit breach, or input-identity failure fails the release evidence. Each gate prints one start, result, and duration line. Detailed output remains in that gate's checksummed evidence log. Publication separately requires exactly one passing `native-catalog-resource` command record, so an absent or failed resource record cannot be admitted even if the top-level evidence status is malformed.
+
+The hosted package job has a 60-minute timeout. The read-only self-hosted validation job has a 240-minute timeout. It transfers the checksummed assets to a separate 30-minute publication job. Only the publication job receives `contents: write` permission.
+
+Preview and perform the exact suite update:
+
+```bash
+./scripts/shinigami-suite update --dry-run
+./scripts/shinigami-suite update
+./scripts/shinigami-suite status
+```
+
+Record:
+
+- source commit;
+- Omarchy Quattro and Quickshell versions;
+- plugin count and payload verification;
+- live workflows exercised;
+- physical, credential, or hardware states not exercised;
+- relevant screenshots and sanitized logs.
+
+Package acceptance additionally records Pacman package metadata, source-to-
+package migration, update, explicit rollback, repair, user-suite uninstall,
+package removal, and stock Omarchy recovery.
+
+## Live acceptance
+
+At minimum, verify:
+
+1. Shinigami to Omarchy to Shinigami bar continuity;
+2. Top and Bottom bar placement;
+3. Control Center, Omarchy menu continuity, panels, pickers, Escape, and outside dismissal;
+4. shell restart and theme change;
+5. idle/screensaver panel cleanup;
+6. no duplicate production Quickshell process;
+7. no Shinigami type, loader, reference, or binding-loop errors.
+
+Physical multi-monitor, mixed-scale, enterprise Wi-Fi, and Bluetooth workflow
+acceptance remain separate release gates when the hardware or credentials are
+not available.
+
+## Commit and publish
+
+1. Review `git diff`, generated evidence, and the working tree.
+2. Commit with a concise imperative subject.
+3. Rebuild the archive from the clean commit and confirm its SHA matches the
+   pinned PKGBUILD value:
+   `scripts/build-release-archive --expected-commit <full-commit> --check-reproducible`.
+4. Configure a server-side immutable `v*` tag ruleset that blocks updates and
+   deletion; workflow checks do not replace this control.
+5. Tag the exact accepted commit as `v<version>`.
+6. Push the branch and tag to `HANCORE-linux/Shinigami-Shell`.
+7. Verify the remote tag peels to the intended commit.
+8. Confirm the workflow builds from `GITHUB_SHA` in the read-only validation job.
+9. Confirm the publication job verifies the transferred checksums, uploads only the declared assets to a draft, downloads them, verifies every remote name, size, and SHA-256, and repeats remote direct/peeled tag-to-commit verification immediately before publishing.
+
+A failed upload or remote verification must remain a draft. A retry may reuse
+that same verified draft, refresh its notes, and replace only the five declared
+assets; an undeclared remote asset still blocks publication. The workflow
+repeats the complete remote comparison immediately before publication. Do not
+manually publish a failed draft as a shortcut, and do not move an already
+published tag. If a candidate needs another fix, advance the prerelease version
+and produce a new immutable asset.
+
+## Public-release gate
+
+Making the repository public requires every blocker in
+[release readiness](../release-readiness.md) to pass on the exact release
+commit. A fixture, source audit, or inherited predecessor behavior does not
+replace physical Shinigami runtime acceptance.

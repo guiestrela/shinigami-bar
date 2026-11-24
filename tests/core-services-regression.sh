@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/host-diagnostics.sh"
+
+fail() {
+  printf 'core services regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+command -v quickshell >/dev/null 2>&1 || fail "quickshell is required"
+
+smoke_root=$(mktemp -d /tmp/shinigami-core-services.XXXXXX)
+trap 'rm -rf -- "$smoke_root"' EXIT
+mkdir -p "$smoke_root/runtime" "$smoke_root/home"
+chmod 700 "$smoke_root/runtime"
+cp -a "$repo_root/shinigami.telemetry" "$smoke_root/telemetry"
+mkdir -p "$smoke_root/shinigami.state"
+cp -a "$repo_root/shinigami.state/runtime" "$smoke_root/shinigami.state/"
+printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+  > "$smoke_root/shinigami.state/.shinigami-managed.json"
+mkdir -p "$smoke_root/cpu"
+cp "$repo_root/shinigami.cpu/Service.qml" \
+  "$repo_root/shinigami.cpu/GpuTelemetry.qml" "$smoke_root/cpu/"
+cp -a "$repo_root/shinigami.cpu/scripts" "$smoke_root/cpu/scripts"
+cp -a "$repo_root/shinigami.power-state" "$smoke_root/powerstate"
+cp "$repo_root/tests/core-services-smoke.qml" "$smoke_root/shell.qml"
+
+set +e
+output=$(timeout 8 env \
+  HOME="$smoke_root/home" \
+  QT_QPA_PLATFORM=offscreen \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$smoke_root/runtime" \
+  quickshell -p "$smoke_root" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "smoke exited $rc"
+grep -q 'Configuration Loaded' <<<"$output" \
+  || fail "configuration did not load"
+grep -q 'core services smoke passed' <<<"$output" \
+  || fail "runtime assertions did not complete"
+if grep -Eq "$HOST_DIAGNOSTICS_BINDING" <<<"$output"; then
+  fail "QML runtime error"
+fi
+
+printf 'core services regression passed\n'

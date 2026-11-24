@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.state",
+  "name": "Shinigami State",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Normalized Shinigami configuration and theme palette state.",
+  "kinds": [
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "core",
+    "role": "state",
+    "requires": [],
+    "recommends": []
+  }
+}

@@ -1,0 +1,468 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import "MediaMotion.js" as Motion
+import qs.Commons as Commons
+import qs.Ui as Ui
+import "../shinigami.state/runtime" as SuiteRuntime
+import "../shinigami.state/lib/presentation" as Presentation
+
+Ui.Panel {
+  id: root
+
+  moduleName: "shinigami.media"
+  manageIpc: false
+  Presentation.HostTokens { id: hostTokens; bar: root.bar; serviceShell: suiteShell }
+  property url panelSource: Qt.resolvedUrl("MediaPanel.qml")
+  SuiteRuntime.HostShell { id: suiteShell; host: root.bar ? root.bar.shell : null }
+  readonly property var mediaService: suiteShell.firstPartyServiceFor("omarchy.media")
+  readonly property var spectrumService: suiteShell.serviceFor("shinigami.media")
+  readonly property var activePlayer: mediaService ? mediaService.activePlayer : null
+  readonly property bool active: !!(activePlayer
+    && (activePlayer.trackTitle || activePlayer.trackArtist))
+  readonly property bool playing: active && activePlayer.isPlaying === true
+  readonly property string title: activePlayer ? String(activePlayer.trackTitle || "") : ""
+  readonly property string artist: activePlayer ? String(activePlayer.trackArtist || "") : ""
+  readonly property string trackLabel: title && artist
+    ? title + "  ·  " + artist : title || artist
+  readonly property string tooltipText: active
+    ? (artist ? artist + " — " + title : title) : "No active media player"
+  readonly property var tokens: bar && "visualTokens" in bar
+    && bar.visualTokens ? bar.visualTokens : hostTokens
+  readonly property color widgetInk: tokens
+    && typeof tokens.widgetContentColor === "function"
+    ? tokens.widgetContentColor(settings,
+      bar ? bar.urgent : Commons.Color.accent)
+    : (bar ? bar.urgent : Commons.Color.accent)
+  // Keep both saved media styles; only V1 admits the separate Icon-only mode.
+  readonly property string mediaStyle:
+    String(setting("mediaStyle", "default")) === "full"
+      ? "full" : "default"
+  readonly property bool defaultMode: mediaStyle === "default" && !iconMode
+  readonly property bool fullMode: mediaStyle === "full" && !iconMode
+  readonly property bool iconMode: v1Presentation
+    && setting("displayMode", "full") === "icon-only"
+  readonly property bool textMode: false
+  readonly property bool v1Presentation: !tokens
+    || String(tokens.shellStyle || "shinigami") === "shinigami"
+  readonly property bool museMode: fullMode
+  readonly property bool spectrumEnabled: setting("spectrum", true) !== false
+  readonly property bool spectrumRequested: visible && active && museMode
+    && !opened && (!bar || !bar.vertical)
+  readonly property var pendingLevels: spectrumService && spectrumService.levels
+    ? spectrumService.levels : []
+  property var museLevels: []
+  readonly property bool pulseSettling: (horizontalPulse.visible && horizontalPulse.settling)
+    || (verticalPulse.visible && verticalPulse.settling)
+  readonly property bool motionRunning: visible && !opened && (playing || pulseSettling) && !iconMode
+  property bool motionStepping: false
+  property int motionStep: 0
+  readonly property string spectrumState: spectrumService
+    ? String(spectrumService.state || "inactive") : "unavailable"
+  property var leasedSpectrumService: null
+  readonly property bool panelLoaded: panelLoader.item !== null
+  readonly property var panelItem: panelLoader.item
+  readonly property var interactionTarget: actionButton
+  readonly property bool museVisible: muse.visible
+  readonly property int museBandCount: muse.renderedBandCount
+  readonly property bool v1FullVisible: activeRow.visible
+
+  visible: mediaService !== null
+  implicitWidth: visible ? (bar && bar.vertical
+    ? bar.barSize : mediaSurface.implicitWidth) : 0
+  implicitHeight: visible ? (bar && bar.vertical
+    ? mediaSurface.implicitHeight : bar ? bar.barSize : 28) : 0
+
+  function advanceMotion() {
+    if (!motionRunning) return
+    // Fixed animation-time steps: never catch up a delayed tick with a visible
+    // jump (vinyl 4.5 degrees; marquee at most 2 logical pixels per step).
+    const delta = 40
+    motionStepping = true
+    motionStep++
+    if (activeRow.visible) {
+      if (playing) marqueeClip.advance(delta)
+      horizontalPulse.advance(delta)
+    }
+    if (verticalPulse.visible) verticalPulse.advance(delta)
+    if (playing && muse.visible) {
+      muse.advance(delta)
+      if (!Motion.sameLevels(museLevels, pendingLevels)) museLevels = pendingLevels
+    }
+    motionStepping = false
+  }
+
+  // One clock per output-local widget, not one animation driver per primitive.
+  Timer {
+    interval: 40
+    repeat: true
+    running: root.motionRunning
+    onTriggered: root.advanceMotion()
+  }
+
+  onPendingLevelsChanged: {
+    if (visible && !playing && !Motion.sameLevels(museLevels, pendingLevels))
+      museLevels = pendingLevels
+  }
+
+  function runAction(action) {
+    return mediaService && typeof mediaService.runAction === "function"
+      ? mediaService.runAction(String(action || ""), false) === true : false
+  }
+
+  function runMusePrimaryAction() {
+    return runAction("playPause")
+  }
+
+  function runMuseWheel(delta) {
+    if (Number(delta) === 0) return false
+    return runAction(Number(delta) > 0 ? "next" : "previous")
+  }
+
+  function syncSpectrumLease() {
+    const next = spectrumRequested ? spectrumService : null
+    if (leasedSpectrumService === next) return
+    if (leasedSpectrumService
+        && typeof leasedSpectrumService.endSpectrum === "function")
+      leasedSpectrumService.endSpectrum(root)
+    leasedSpectrumService = next
+    if (leasedSpectrumService
+        && typeof leasedSpectrumService.beginSpectrum === "function")
+      leasedSpectrumService.beginSpectrum(root)
+  }
+
+  function releaseSpectrumLease() {
+    if (leasedSpectrumService
+        && typeof leasedSpectrumService.endSpectrum === "function")
+      leasedSpectrumService.endSpectrum(root)
+    leasedSpectrumService = null
+  }
+
+  function syncPanelLoader() {
+    if (!opened) {
+      panelLoader.source = ""
+      return
+    }
+    panelLoader.setSource(panelSource, {
+      anchorItem: mediaSurface,
+      bar: Qt.binding(function() { return root.bar }),
+      ownerWidget: root,
+      mediaService: Qt.binding(function() { return root.mediaService }),
+      spectrumService: Qt.binding(function() { return root.spectrumService }),
+      spectrumEnabled: Qt.binding(function() { return root.spectrumEnabled })
+    })
+  }
+
+  onOpenedChanged: syncPanelLoader()
+  onSpectrumRequestedChanged: syncSpectrumLease()
+  onSpectrumServiceChanged: syncSpectrumLease()
+  Component.onCompleted: syncSpectrumLease()
+  Component.onDestruction: releaseSpectrumLease()
+
+  Item {
+    id: mediaSurface
+    anchors.centerIn: parent
+    implicitWidth: !root.tokens ? 0 : root.bar && root.bar.vertical
+      ? root.bar.barSize
+      : (root.active && !root.iconMode
+          ? (root.museMode ? muse.implicitWidth
+            : activeRow.implicitWidth)
+          : idleIcon.implicitWidth)
+        + 2 * root.tokens.pillPaddingX
+    implicitHeight: root.bar && root.bar.vertical
+      ? Commons.Style.space(34) : root.tokens ? root.tokens.slotHeight : 28
+    width: implicitWidth
+    height: implicitHeight
+
+    Presentation.PillSurface {
+      tokenSource: root.tokens
+      settings: root.settings
+      v1AppearanceEnabled: true
+      anchors.fill: parent
+      anchors.topMargin: root.tokens
+        ? Math.round((parent.height - root.tokens.pillHeight) / 2) : 0
+      anchors.bottomMargin: root.tokens
+        ? Math.round((parent.height - root.tokens.pillHeight) / 2) : 0
+      bar: root.bar
+    }
+
+    // This is the one registered surface used by KeyboardPanel's bar-click
+    // forwarding. Transport controls above it retain their dedicated actions.
+    Ui.WidgetButton {
+      id: actionButton
+      anchors.fill: parent
+      bar: root.mediaService ? root.bar : null
+      text: " "
+      keepSpace: true
+      horizontalMargin: 0
+      verticalPadding: 0
+      fixedWidth: mediaSurface.width
+      fixedHeight: mediaSurface.height
+      tooltipText: root.tooltipText
+      onPressed: function(button) {
+        if (button === Qt.RightButton || !root.active) root.toggle()
+        else if (button === Qt.MiddleButton) root.runAction("next")
+        else root.runAction("playPause")
+      }
+      onWheelMoved: function(delta) {
+        root.runAction(delta > 0 ? "previous" : "next")
+      }
+    }
+
+    Presentation.BarGlyph {
+      id: idleIcon
+      anchors.centerIn: parent
+      visible: !root.active && !root.iconMode
+      text: "music_note"
+      color: Qt.rgba(root.widgetInk.r, root.widgetInk.g,
+        root.widgetInk.b, 0.45)
+      font.pixelSize: 15
+      fill: 0
+    }
+
+    Row {
+      id: activeRow
+      visible: root.active && root.defaultMode
+        && (!root.bar || !root.bar.vertical)
+      anchors.centerIn: parent
+      spacing: root.tokens ? root.tokens.compactGap : Commons.Style.space(4)
+
+      MediaControl {
+        icon: "skip_previous"
+        enabled: root.activePlayer && root.activePlayer.canGoPrevious === true
+        action: "previous"
+      }
+
+      MediaControl {
+        icon: root.playing ? "pause" : "play_arrow"
+        enabled: root.activePlayer && (root.activePlayer.canTogglePlaying === true
+          || root.activePlayer.canPlay === true || root.activePlayer.canPause === true)
+        action: "playPause"
+        accent: true
+      }
+
+      MediaControl {
+        icon: "skip_next"
+        enabled: root.activePlayer && root.activePlayer.canGoNext === true
+        action: "next"
+      }
+
+      Item {
+        id: marqueeMask
+        width: Commons.Style.space(88)
+        height: mediaSurface.height
+        visible: false
+        layer.enabled: true
+
+        Rectangle {
+          anchors.fill: parent
+          gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "white" }
+            GradientStop { position: 0.92; color: "white" }
+            GradientStop { position: 1.0; color: "transparent" }
+          }
+        }
+      }
+
+      Item {
+        id: marqueeClip
+        width: Commons.Style.space(88)
+        height: mediaSurface.height
+        anchors.verticalCenter: parent.verticalCenter
+
+        property real elapsed: 0
+        property real scrollX: 0
+
+        function reset() {
+          elapsed = 0
+          scrollX = 0
+        }
+
+        function advance(milliseconds) {
+          if (marqueeText.implicitWidth <= width) { reset(); return }
+          const distance = marqueeText.implicitWidth - width + 4
+          const duration = Math.max(100, distance) * 20
+          elapsed = (elapsed + milliseconds) % (2000 + duration + 900)
+          scrollX = elapsed < 2000 ? 0
+            : -distance * Math.min(1, (elapsed - 2000) / duration)
+        }
+
+        onWidthChanged: reset()
+        onVisibleChanged: reset()
+
+        // Keep the reservation above, but give the offscreen paint layer an
+        // integer physical extent and origin. A fractional layer would filter
+        // the already aligned native text a second time when composited.
+        ShaderEffect {
+          id: marqueePaint
+          width: paintGrid.rasterExtent(marqueeClip.width)
+          height: paintGrid.rasterExtent(marqueeClip.height)
+          readonly property real inkOffsetX: paintGrid.snapX(0)
+          readonly property real inkOffsetY: paintGrid.snapY(0)
+          Presentation.BarInk { id: paintGrid; target: marqueePaint }
+          transform: Translate {
+            x: marqueePaint.inkOffsetX
+            y: marqueePaint.inkOffsetY
+          }
+          // Only the sampling offset moves. Neither texture contains moving
+          // content, so a scroll step needs no offscreen repaint.
+          property var source: marqueeTexture
+          property var maskSource: marqueeMask
+          property vector2d sourceScale: Qt.vector2d(width / marqueeContent.width, 1)
+          property real scrollOffset: -Math.round(marqueeClip.scrollX * paintGrid.dpr)
+            / (paintGrid.dpr * marqueeContent.width)
+          fragmentShader: Qt.resolvedUrl("assets/marquee.frag.qsb")
+
+          ShaderEffectSource {
+            id: marqueeTexture
+            sourceItem: marqueeContent
+            hideSource: true
+            textureSize: Qt.size(Math.round(marqueeContent.width * paintGrid.dpr),
+              Math.round(marqueeContent.height * paintGrid.dpr))
+          }
+
+          Item {
+            id: marqueeContent
+            width: Math.max(marqueePaint.width,
+              Math.ceil(marqueeText.implicitWidth * paintGrid.dpr) / paintGrid.dpr)
+            height: marqueePaint.height
+
+            Presentation.IconText {
+              id: marqueeText
+              barText: true
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.trackLabel
+              color: Qt.rgba(root.widgetInk.r, root.widgetInk.g,
+                root.widgetInk.b, root.playing ? 0.85 : 0.42)
+              font.family: root.bar ? root.bar.fontFamily : Commons.Style.font.family
+              font.pixelSize: root.tokens ? root.tokens.labelSize : Commons.Style.font.body
+              renderType: Text.NativeRendering
+              onTextChanged: marqueeClip.reset()
+              onImplicitWidthChanged: marqueeClip.reset()
+            }
+          }
+        }
+
+        Connections {
+          target: root
+          function onPlayingChanged() { marqueeClip.reset() }
+          function onOpenedChanged() { marqueeClip.reset() }
+          function onVisibleChanged() { marqueeClip.reset() }
+        }
+      }
+
+      MediaPulse {
+        id: horizontalPulse
+        admitted: root.visible && !root.opened
+        anchors.verticalCenter: parent.verticalCenter
+        playing: root.playing
+        tint: root.widgetInk
+      }
+    }
+
+    MediaMuse {
+      id: muse
+      visible: root.active && root.museMode
+        && (!root.bar || !root.bar.vertical)
+      anchors.centerIn: parent
+      levels: root.museLevels
+      playing: root.playing
+      tint: root.widgetInk
+
+      MouseArea {
+        id: museMouse
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.LeftButton
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.runMusePrimaryAction()
+        onWheel: function(wheel) {
+          if (wheel.angleDelta.y === 0) return
+          root.runMuseWheel(wheel.angleDelta.y)
+          wheel.accepted = true
+        }
+      }
+    }
+
+    Presentation.BarGlyph {
+      id: activeIcon
+      visible: root.iconMode
+      anchors.centerIn: parent
+      text: root.playing ? "pause" : "play_arrow"
+      color: root.widgetInk
+      font.pixelSize: root.tokens ? root.tokens.iconSize : 14
+      fill: 1
+    }
+
+    Presentation.IconText {
+      id: activeText
+      barText: true
+      visible: root.active && root.textMode
+        && (!root.bar || !root.bar.vertical)
+      anchors.centerIn: parent
+      width: Math.min(implicitWidth, Commons.Style.space(116))
+      text: root.trackLabel || (root.playing ? "PLAYING" : "PAUSED")
+      color: root.widgetInk
+      font.family: root.bar ? root.bar.fontFamily : Commons.Style.font.family
+      font.pixelSize: root.tokens
+        ? root.tokens.labelSize : Commons.Style.font.body
+      font.weight: Font.Medium
+      elide: Text.ElideRight
+      maximumLineCount: 1
+      renderType: Text.NativeRendering
+    }
+
+    Column {
+      visible: root.active && !root.iconMode && root.bar && root.bar.vertical
+      anchors.centerIn: parent
+      spacing: Commons.Style.space(2)
+
+      Presentation.BarGlyph {
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: root.playing ? "pause" : "play_arrow"
+        color: root.widgetInk
+        font.pixelSize: root.tokens ? root.tokens.iconSize : Commons.Style.font.body
+        fill: 1
+      }
+
+      MediaPulse {
+        id: verticalPulse
+        admitted: root.visible && !root.opened
+        anchors.horizontalCenter: parent.horizontalCenter
+        playing: root.playing
+        tint: root.widgetInk
+        scale: 0.75
+      }
+    }
+  }
+
+  Loader { id: panelLoader }
+
+  component MediaControl: Item {
+    required property string icon
+    required property string action
+    property bool accent: false
+
+    implicitWidth: Commons.Style.space(18)
+    implicitHeight: mediaSurface.height
+    opacity: enabled ? 1 : 0.28
+
+    Presentation.BarGlyph {
+      anchors.centerIn: parent
+      optical: true
+      text: parent.icon
+      color: parent.accent ? root.widgetInk
+        : Qt.rgba(root.widgetInk.r, root.widgetInk.g, root.widgetInk.b, 0.72)
+      font.pixelSize: 13
+      fill: parent.accent ? 1 : 0
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      enabled: parent.enabled
+      cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: root.runAction(parent.action)
+    }
+  }
+}

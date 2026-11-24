@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from datetime import datetime, timedelta
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = REPO_ROOT / "shinigami.ai" / "scripts" / "opencode-usage"
+
+
+class OpenCodeUsageRegressionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory(prefix="shinigami-opencode-")
+        self.data_dir = Path(self.tempdir.name)
+        self.database = self.data_dir / "opencode.db"
+        with sqlite3.connect(self.database) as con:
+            con.execute(
+                """
+                create table message (
+                  session_id text not null,
+                  time_created integer not null,
+                  time_updated integer not null,
+                  data text not null
+                )
+                """
+            )
+
+    def tearDown(self) -> None:
+        self.tempdir.cleanup()
+
+    def add_message(
+        self,
+        *,
+        session: str,
+        timestamp_ms: int,
+        model: str,
+        provider: str = "test-provider",
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        reasoning_tokens: int = 0,
+        cache_read: int = 0,
+        cache_write: int = 0,
+    ) -> None:
+        data = {
+            "role": "assistant",
+            "modelID": model,
+            "providerID": provider,
+            "tokens": {
+                "input": input_tokens,
+                "output": output_tokens,
+                "reasoning": reasoning_tokens,
+                "cache": {"read": cache_read, "write": cache_write},
+            },
+        }
+        with sqlite3.connect(self.database) as con:
+            con.execute(
+                "insert into message values (?, ?, ?, ?)",
+                (session, timestamp_ms, timestamp_ms, json.dumps(data)),
+            )
+
+    def run_scripts(self) -> dict:
+        environment = os.environ.copy()
+        environment["OPENCODE_DATA_DIR"] = str(self.data_dir)
+        result = subprocess.run(
+            [str(SCRIPT)],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=10,
+        )
+        return json.loads(result.stdout)
+
+    def test_models_and_latest_model_use_positive_today_scope(self) -> None:
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow = today + timedelta(days=1)
+        if (now - today < timedelta(minutes=5)
+                or tomorrow - now < timedelta(minutes=5)):
+            self.skipTest("local midnight boundary is too close for deterministic scope")
+        current_ms = int(time.time() * 1000)
+        old_ms = int((today - timedelta(minutes=1)).timestamp() * 1000)
+
+        self.add_message(
+            session="old",
+            timestamp_ms=old_ms,
+            model="historical-model",
+            input_tokens=9000,
+            output_tokens=1000,
+        )
+        self.add_message(
+            session="current-a",
+            timestamp_ms=current_ms - 4000,
+            model="current-a",
+            input_tokens=100,
+            output_tokens=50,
+            cache_read=1054540000,
+        )
+        self.add_message(
+            session="current-b",
+            timestamp_ms=current_ms - 2000,
+            model="current-b",
+            input_tokens=20,
+            output_tokens=30,
+            reasoning_tokens=10,
+            cache_write=5,
+        )
+        # A later assistant row with no scoped usage must neither create a
+        # model row nor replace latestModel.
+        self.add_message(
+            session="zero",
+            timestamp_ms=current_ms - 1000,
+            model="zero-model",
+        )
+        self.add_message(
+            session="future",
+            timestamp_ms=current_ms + 60 * 60 * 1000,
+            model="future-model",
+            input_tokens=500,
+        )
+
+        output = self.run_scripts()
+        rows = output["_models"]
+        by_name = {row["name"]: row for row in rows}
+
+        self.assertEqual(output["_model"], "current-b (test-provider)")
+        self.assertEqual(
+            set(by_name),
+            {"current-a (test-provider)", "current-b (test-provider)"},
+        )
+        self.assertNotIn("historical-model (test-provider)", by_name)
+        self.assertNotIn("zero-model (test-provider)", by_name)
+        self.assertNotIn("future-model (test-provider)", by_name)
+
+        current_a = by_name["current-a (test-provider)"]
+        current_b = by_name["current-b (test-provider)"]
+        self.assertEqual(current_a["total"], 150)
+        self.assertEqual(current_a["inputLabel"], "100")
+        self.assertEqual(current_a["outputLabel"], "50")
+        self.assertEqual(current_a["cacheReadLabel"], "1.1B")
+        self.assertEqual(current_a["todayLabel"], "0")
+        self.assertEqual(current_a["pct"], 100)
+        self.assertEqual(current_b["total"], 65)
+        self.assertEqual(current_b["pct"], 43)
+        self.assertEqual(output["_today_tokens"], 215)
+        self.assertEqual(output["_day"], today.date().isoformat())
+
+    def test_v2_assistant_overrides_migrated_legacy_message(self) -> None:
+        timestamp = int(time.time() * 1000)
+        self.add_message(session="session", timestamp_ms=timestamp,
+                         model="legacy-model", input_tokens=9000)
+        data = {"model": {"id": "v2-model", "providerID": "opencode", "variant": "free"},
+                "tokens": {"input": 100, "output": 50, "reasoning": 10,
+                           "cache": {"read": 1000, "write": 5}},
+                "cost": 0, "time": {"created": timestamp, "completed": timestamp}}
+        with sqlite3.connect(self.database) as con:
+            con.execute("alter table message add column id text")
+            con.execute("update message set id = 'same-id'")
+            con.execute("create table session_message (id text primary key, session_id text, "
+                        "type text, seq integer, time_created integer, time_updated integer, data text)")
+            con.execute("insert into session_message values (?, ?, ?, ?, ?, ?, ?)",
+                        ("same-id", "session", "assistant", 1, timestamp, timestamp, json.dumps(data)))
+        output = self.run_scripts()
+        self.assertEqual(output["_today_tokens"], 165)
+        self.assertEqual(output["_today_tokens_with_cache_read"], 1165)
+        self.assertEqual(output["_model"], "v2-model (opencode)")
+        self.assertEqual(len(output["_models"]), 1)
+        self.assertEqual(output["_models"][0]["total"], 165)
+        self.assertEqual(output["_cost_today"], 0)
+
+    def test_prompts_sessions_and_recent_days(self) -> None:
+        now = datetime.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if min(now - today, today + timedelta(days=1) - now) < timedelta(minutes=5):
+            self.skipTest("local midnight boundary is too close for deterministic scope")
+        days = [(today - timedelta(days=offset)).date().isoformat() for offset in range(6, -1, -1)]
+        with sqlite3.connect(self.database) as con:
+            con.execute("alter table message add column id text")
+            con.execute("create table session (id text, parent_id text)")
+            con.execute("insert into session values ('root', null), ('other', null), ('child', 'root')")
+            con.execute("create table session_message (id text, session_id text, type text, "
+                        "time_created integer, time_updated integer, data text)")
+            for mid, session, at, role, tokens in [
+                ("prompt", "root", now, "user", 0), ("other", "other", now, "user", 0),
+                ("yesterday", "root", today - timedelta(hours=1), "user", 0),
+                ("child-prompt", "child", now, "user", 0),
+                ("answer", "root", now, "assistant", 10),
+                ("child-answer", "child", now, "assistant", 20),
+                ("no-model", "ignored", now, "assistant", 99),
+                ("oldest", "root", today - timedelta(days=6), "assistant", 5),
+            ]:
+                stamp = int(at.timestamp() * 1000)
+                data = {"model": {"id": "" if mid == "no-model" else "fixture"},
+                        "tokens": {"input": tokens, "cache": {"read": 1000}}}
+                con.execute("insert into session_message values (?, ?, ?, ?, ?, ?)",
+                            (mid, session, role, stamp, stamp, json.dumps(data)))
+            con.execute("insert into message values (?, ?, ?, ?, ?)",
+                        ("migrated", int(now.timestamp() * 1000), int(now.timestamp() * 1000),
+                         json.dumps({"role": "user"}), "prompt"))
+        output = self.run_scripts()
+        self.assertEqual(output["_today_prompts"], 2)
+        self.assertEqual(output["_today_sessions"], 3)
+        self.assertEqual(output["_recent_days"], [{"date": day, "messageCount": tokens}
+                         for day, tokens in zip(days, [5, 0, 0, 0, 0, 0, 30])])
+
+    def test_local_day_bounds_follow_dst_midnights(self) -> None:
+        if not hasattr(time, "tzset"):
+            self.skipTest("tzset is unavailable")
+        old_tz = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "Europe/Berlin"
+            time.tzset()
+            loader = importlib.machinery.SourceFileLoader(
+                "shinigami_opencode_usage", str(SCRIPT)
+            )
+            spec = importlib.util.spec_from_loader(loader.name, loader)
+            self.assertIsNotNone(spec)
+            module = importlib.util.module_from_spec(spec)
+            loader.exec_module(module)
+
+            spring_start, spring_end, spring_day = module.local_day_bounds(
+                datetime(2026, 3, 29, 12, 0, 0)
+            )
+            autumn_start, autumn_end, autumn_day = module.local_day_bounds(
+                datetime(2026, 10, 25, 12, 0, 0)
+            )
+            self.assertEqual(spring_day, "2026-03-29")
+            self.assertEqual(autumn_day, "2026-10-25")
+            self.assertEqual(spring_end - spring_start, 23 * 60 * 60 * 1000)
+            self.assertEqual(autumn_end - autumn_start, 25 * 60 * 60 * 1000)
+        finally:
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+            time.tzset()
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

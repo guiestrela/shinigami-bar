@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.quick-access",
+  "name": "Shinigami Quick Access",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami idle inhibitor and theme, screenshot, and video pickers.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami quick access",
+    "description": "Idle inhibitor and image/media picker shortcuts",
+    "category": "Utilities",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G10",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

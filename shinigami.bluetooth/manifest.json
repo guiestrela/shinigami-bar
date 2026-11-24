@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.bluetooth",
+  "name": "Shinigami Bluetooth",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami Bluetooth presentation with a native BlueZ and audio backend.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami Bluetooth",
+    "description": "Bluetooth radio, discovery, pairing, and devices",
+    "category": "Hardware",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G15",
+    "capabilities": [
+      "bluetooth"
+    ],
+    "preferredRegion": "right",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

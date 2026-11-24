@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.gpu",
+  "name": "Shinigami GPU",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Lazy GPU load, hardware, driver, temperature, and VRAM widget.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami GPU",
+    "description": "GPU activity, hardware, driver, temperature, and VRAM details",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G17",
+    "requires": [
+      "shinigami.state",
+      "shinigami.cpu"
+    ],
+    "recommends": []
+  }
+}

@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+source "$repo_root/tests/lib/host-diagnostics.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
+tmpdir=$(mktemp -d /tmp/shinigami-status.XXXXXX)
+trap 'rm -rf -- "$tmpdir"' EXIT
+
+fail() {
+  printf 'status plugin regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -d $omarchy_path/shell ]] || fail "Omarchy shell not found: $omarchy_path/shell"
+[[ -x $quickshell_bin ]] || fail "Quickshell not found: $quickshell_bin"
+
+mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures" "$tmpdir/home" \
+  "$tmpdir/config" "$tmpdir/cache" "$tmpdir/data" "$tmpdir/state" \
+  "$tmpdir/tmp" "$tmpdir/pipewire"
+chmod 700 "$tmpdir/runtime" "$tmpdir/home" "$tmpdir/config" \
+  "$tmpdir/cache" "$tmpdir/data" "$tmpdir/state" "$tmpdir/tmp"
+shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
+printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+  > "$tmpdir/shinigami.state/.shinigami-managed.json"
+mkdir -p "$tmpdir/shinigami.bar"
+install -Dm0644 "$repo_root/shinigami.bar/core/GroupRegistry.js" \
+  "$tmpdir/shinigami.bar/core/GroupRegistry.js"
+cp -a -- "$repo_root/shinigami.bar/services" \
+  "$tmpdir/shinigami.bar/services"
+cp -a -- "$repo_root/shinigami.status" "$tmpdir/status"
+cp -- "$repo_root/tests/fixtures/ShinigamiPanelTest.qml" \
+  "$tmpdir/status/ShinigamiPanel.qml"
+cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
+cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"
+install -m 0644 "$repo_root/tests/status-plugin-smoke.qml" "$tmpdir/shell.qml"
+install -m 0644 "$repo_root/tests/fixtures/StatusTestWidget.qml" \
+  "$repo_root/tests/fixtures/TrayDrawerTestPanel.qml" \
+  "$repo_root/tests/fixtures/NotificationPanelTestView.qml" \
+  "$tmpdir/fixtures/"
+
+printf '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><path d="M0 0h8v8H0z"/></svg>\n' >"$tmpdir/fixtures/app.svg"
+set +e
+output=$(timeout 8 env -i \
+  HOME="$tmpdir/home" \
+  XDG_CONFIG_HOME="$tmpdir/config" \
+  XDG_CACHE_HOME="$tmpdir/cache" \
+  XDG_DATA_HOME="$tmpdir/data" \
+  XDG_DATA_DIRS="$tmpdir/data" \
+  XDG_STATE_HOME="$tmpdir/state" \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  TMPDIR="$tmpdir/tmp" \
+  PIPEWIRE_RUNTIME_DIR="$tmpdir/pipewire" \
+  DBUS_SESSION_BUS_ADDRESS="unix:path=$tmpdir/runtime/no-session-bus" \
+  DBUS_SYSTEM_BUS_ADDRESS="unix:path=$tmpdir/runtime/no-system-bus" \
+  HYPRLAND_INSTANCE_SIGNATURE= \
+  WAYLAND_DISPLAY= \
+  DISPLAY= \
+  PATH=/usr/bin:/bin \
+  LANG=C.UTF-8 \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  QT_QUICK_BACKEND=software \
+  QML_DISABLE_DISK_CACHE=1 \
+  QML_IMPORT_PATH="$omarchy_path/shell" \
+  QML2_IMPORT_PATH="$omarchy_path/shell" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "component smoke exited $rc"
+grep -F 'status plugin smoke passed' <<<"$output" >/dev/null \
+  || fail "success marker missing"
+unexpected_diagnostics=$(grep -E \
+  'WARN|ERROR|CRITICAL|TypeError|ReferenceError|Binding loop|Unable to assign|Cannot assign|Internal error' \
+  <<<"$output" | host_filter_startup_diagnostics \
+  -e 'Module path contains invalid characters for a module name:  "/shinigami.bar/services"' \
+  || true)
+[[ -z $unexpected_diagnostics ]] \
+  || fail "component smoke emitted an unexpected runtime diagnostic"
+
+status_widget="$repo_root/shinigami.status/BarWidget.qml"
+status_service="$repo_root/shinigami.status/Service.qml"
+bar_widget="$repo_root/shinigami.bar/Bar.qml"
+python3 - "$bar_widget" "$status_widget" <<'PY'
+from pathlib import Path
+import sys
+
+bar = Path(sys.argv[1]).read_text()
+status = Path(sys.argv[2]).read_text()
+try:
+    bar_dtor = bar.index("  Component.onDestruction: {", bar.index("  Component.onCompleted: {"))
+    teardown_reset = bar.index("    tearingDown = true", bar_dtor)
+    status_dtor = status.index("  Component.onDestruction: {")
+    registered_reset = status.index("      updateWidget.registeredBar = null", status_dtor)
+    update_reset = status.index("    if (updateWidget && \"bar\" in updateWidget) updateWidget.bar = null", status_dtor)
+    tray_reset = status.index("    if (trayWidget && \"bar\" in trayWidget) trayWidget.bar = null", status_dtor)
+except ValueError:
+    raise SystemExit("Status teardown ordering source guard anchor drifted")
+if teardown_reset != bar_dtor + len("  Component.onDestruction: {\n"):
+    raise SystemExit("Bar teardown flag is not the first destruction statement")
+if not registered_reset < update_reset < tray_reset:
+    raise SystemExit("Status teardown ordering no longer guards child Bar reset")
+if ('else if (lifecycleBar && "tearingDown" in lifecycleBar\n'
+        '        && lifecycleBar.tearingDown === true)') not in status:
+    raise SystemExit("Status no longer handles WidgetSlot's pre-destruction Bar revoke")
+PY
+printf 'status teardown ordering source guard passed\n'
+rg -U -q 'Math\.abs\(saved - spacingSavingsLeft\) <= 1e-7\n[[:space:]]*&& now - spacingSavingsChangedAt < 500\) return' \
+  "$status_widget" \
+  || fail "status spacing savings no longer settle a self-induced width cycle"
+rg -Fq '["full", "icon", "text"]' "$status_widget" \
+  || fail "status widget does not expose Full/Icon/Text display modes"
+if rg -q 'SystemTray\.items|NotificationServer|makoctl|pgrep -x hypridle' \
+    "$repo_root/shinigami.status"; then
+  fail "status plugin duplicates an official tray, notification, idle, or DND owner"
+fi
+rg -Fq 'embed.resolveComponent("shinigami.status", "omarchy.tray")' "$status_widget" \
+  || fail "status view does not resolve the official tray component"
+rg -Fq 'embed.resolveComponent("shinigami.status", "shinigami.update-center")' \
+  "$status_widget" \
+  || fail "status view does not resolve the Shinigami update center"
+rg -Fq 'registeredEmbeddedWidgetComponent(owner, id)' "$repo_root/shinigami.status/HostWidgetEmbed.qml" \
+  || fail "status view bypasses owner-scoped embedded Component admission"
+for embedded_widget in shinigami.update-center omarchy.tray; do
+  rg -Fq "\"$embedded_widget\": true" \
+    "$repo_root/shinigami.bar/services/HostWidgetResolver.qml" \
+    || fail "G3 embedded Component allowlist is missing $embedded_widget"
+done
+rg -q 'serviceFor\("shinigami\.status"\)' "$status_widget" \
+  || fail "status view does not resolve the Shinigami notification adapter"
+if rg -q 'firstPartyServiceFor\("omarchy\.notifications"\)' "$status_widget"; then
+  fail "status view bypasses the Shinigami notification adapter"
+fi
+if rg -q 'notification(Source|Component|Loader|Widget)' "$status_widget"; then
+  fail "status view retained the removed Quattro notification bar widget"
+fi
+rg -q 'notificationPanelSource: Qt\.resolvedUrl\("NotificationPanel\.qml"\)' \
+  "$status_widget" || fail "status view does not own the V1 notification panel"
+tray_view="$repo_root/shinigami.status/TrayStatusView.qml"
+rg -Fq 'source: String(trayDelegate.modelData.icon || "")' "$tray_view" \
+  || fail "pinned tray items must render their application icon"
+tray_panel="$repo_root/shinigami.status/TrayDrawerPanel.qml"
+tray_menu="$repo_root/shinigami.status/TrayAppMenuPanel.qml"
+rg -q 'pinnedCount \* Commons\.Style\.space\(18\)' "$tray_view" \
+  || fail "pinned tray cells do not match the V1 18px geometry"
+[[ $(rg -c 'Commons\.Style\.space\(14\)' "$tray_view") -eq 2 ]] \
+  || fail "pinned tray icons do not match the V1 14px geometry"
+rg -q 'readonly property string drawerTooltipText: totalCount' "$tray_view" \
+  || fail "tray drawer tooltip does not retain the current V1 count contract"
+rg -q 'drawerCount > 0 \? " \\u00b7 " \+ drawerCount \+ " hidden" : ""' \
+  "$tray_view" \
+  || fail "tray drawer tooltip does not retain the current V1 hidden-count suffix"
+if rg -Fq 'Middle-click an app to open its menu' "$tray_view"; then
+  fail "tray drawer tooltip retained an obsolete pre-V1 instruction"
+fi
+rg -q 'padding: 12' "$tray_panel" \
+  || fail "tray drawer does not retain the V1 12px content inset"
+rg -q 'fittedContentWidth\(328\)' "$tray_panel" \
+  || fail "tray drawer does not retain the V1 328px outer width"
+rg -q 'contentHeight: fittedContentHeight\(contentColumn\.implicitHeight\)' \
+  "$tray_panel" \
+  || fail "tray drawer still clips its V1 content behind a fixed outer cap"
+rg -U -q 'function closeTrayDrawer\(\) \{[^}]*trayDrawerOpen = false[^}]*closeChild\(trayWidget\)' \
+  "$status_widget" \
+  || fail "closing the tray drawer does not dismiss the host app menu"
+rg -U -q 'function openTrayDrawer\(\) \{[^}]*closeNotificationPanel\(\)[^}]*trayDrawerOpen = true' \
+  "$status_widget" \
+  || fail "tray drawer does not expose a deterministic screen-local open path"
+for bar_host in "$repo_root/shinigami.bar/Bar.qml"; do
+  rg -Fq 'function openStatusTray(screenName: string): string' "$bar_host" \
+    || fail "$bar_host does not expose the screen-local status tray route"
+  rg -Fq 'function openStatusNotifications(screenName: string): string' \
+    "$bar_host" \
+    || fail "$bar_host does not expose the screen-local notification route"
+done
+rg -U -q 'Connections \{[^}]*target: root\.bar[^}]*onLayoutConfigChanged\(\)[^}]*root\.injectChildren\(\)' \
+  "$status_widget" \
+  || fail "embedded official widgets do not react to host layout settings"
+for tray_contract in 'text: "Tray Apps"' 'text: "Pin"' \
+  'text: appRow.hasMenu ? "AppMenu" : "No Menu"' \
+  'trayBackend.togglePin' 'trayBackend.openTrayMenu'; do
+  rg -Fq "$tray_contract" "$tray_panel" \
+    || fail "tray drawer lost V1 presentation/action contract: $tray_contract"
+done
+[[ -f $tray_menu ]] || fail "V1-themed tray app menu is missing"
+rg -q '^ShinigamiPanel \{' "$tray_menu" \
+  || fail "tray app menu does not use the Shinigami panel surface"
+rg -q 'QsMenuOpener' "$tray_menu" \
+  || fail "tray app menu does not consume the authoritative DBus menu"
+rg -q 'owner: ownerWidget' "$tray_menu" \
+  || fail "tray app menu does not share the drawer popout owner"
+if rg -q 'id: menuOwner' "$tray_menu"; then
+  fail "tray app menu retained the competing popout owner"
+fi
+rg -q 'radius: panel\.controlRadius' "$tray_menu" \
+  || fail "tray app menu rows do not follow the live V1 control radius"
+for submenu_contract in 'id: rootMenuOpener' \
+  'menu: panel.open ? panel.rootMenu : null' \
+  'id: submenuOpener' 'entry.updateLayout()' \
+  'Math.max(menuColumn.implicitHeight, rootMenuImplicitHeight)' \
+  'panel.pushSubmenu(menuEntry.modelData)' 'panel.popSubmenu()'; do
+  rg -Fq "$submenu_contract" "$tray_menu" \
+    || fail "tray app menu lost current Quickshell submenu lifecycle: $submenu_contract"
+done
+if rg -q 'entry\.sendOpened\(\)|current\.sendClosed\(\)' "$tray_menu"; then
+  fail "tray app menu duplicates QsMenuOpener lifecycle events"
+fi
+rg -q 'ownerWidget\.openTrayAppMenu\(item, anchor\)' "$tray_panel" \
+  || fail "tray drawer bypasses the V1-themed app menu"
+rg -q 'anchor\.mapToItem\(null,' "$status_widget" \
+  || fail "tray app menu does not preserve the clicked V1 X anchor"
+rg -q 'trayAppMenuAnchor = trayAppMenuBarAnchor' "$status_widget" \
+  || fail "tray app menu still derives panel geometry from the drawer window"
+rg -U -q 'trayAppMenuAnchor = trayAppMenuBarAnchor[^}]*trayDrawerOpen = false[^}]*trayAppMenuOpen = true' \
+  "$status_widget" \
+  || fail "tray app menu does not replace the full-screen drawer like V1"
+rg -Fq 'readonly property bool panelLoaded: notificationPanelLoaded' \
+  "$status_widget" \
+  || fail "status widget does not expose standard panel-loader diagnostics"
+rg -q 'required property var notificationService' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel does not receive the official service directly"
+rg -q 'notificationService\.pendingModel' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel does not consume the official pending model"
+rg -q 'notificationService\.pastModel' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel does not consume the official recent model"
+rg -Fq 'readonly property int notificationCount: pendingCount + recentCount' \
+  "$repo_root/shinigami.status/NotificationStatusView.qml" \
+  || fail "notification badge drops seen history entries"
+rg -Fq 'visible: root.notificationCount > 0' \
+  "$repo_root/shinigami.status/NotificationStatusView.qml" \
+  || fail "notification badge visibility ignores retained history"
+rg -Fq 'readonly property int activeCount: pendingCount + recentCount' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel drops seen notifications from history"
+rg -Fq 'model: panel.activeRows' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification list is not backed by pending and past rows"
+rg -Fq 'notificationService.dismissPast(index)' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel cannot dismiss recent notifications"
+rg -Fq 'notificationService.clearPast()' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel cannot clear recent notifications"
+rg -Fq 'notificationService.showHistory()' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel cannot open host-owned notification history"
+rg -Fq 'text: "Recent"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel has no recent-history action"
+rg -U -q 'id: tabRow\n[[:space:]]+visible: panel\.liveAvailable' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "single-mode Recent view leaves a redundant tab row"
+rg -Fq 'notificationRow.bucket === "past" ? "RECENT" : "LIVE"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification rows do not label live versus recent entries"
+rg -Fq 'paletteColor("color03"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification live highlight does not use color03"
+rg -Fq 'paletteColor("color04"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification recent highlight does not use color04"
+rg -Fq 'text: "Live"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel has no live tab"
+rg -Fq 'function selectTab(tab)' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" \
+  || fail "V1 notification panel has no live/recent tab selection"
+recent_tab_line=$(rg -n 'text: "Recent"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" | head -1 | cut -d: -f1)
+live_tab_line=$(rg -n 'text: "Live"' \
+  "$repo_root/shinigami.status/NotificationPanel.qml" | head -1 | cut -d: -f1)
+(( recent_tab_line < live_tab_line )) \
+  || fail "V1 notification tabs are not ordered Recent then Live"
+if rg -q 'PopupCard|Quickshell\.Services\.Notifications|makoctl' \
+    "$repo_root/shinigami.status/NotificationPanel.qml"; then
+  fail "V1 notification presentation duplicates stock chrome or backend ownership"
+fi
+rg -q 'firstPartyServiceFor\("omarchy\.idle"\)' "$status_service" \
+  || fail "status service bypasses the official idle service"
+rg -q 'firstPartyServiceFor\("omarchy\.notifications"\)' \
+  "$repo_root/shinigami.status/NotificationAdapter.qml" \
+  || fail "notification adapter does not resolve the official service"
+rg -Fq 'NotificationAdapter' "$status_service" \
+  || fail "status service does not expose the notification adapter"
+rg -Fq 'popupModel' "$repo_root/shinigami.status/NotificationAdapter.qml" \
+  || fail "notification adapter does not support the current host model"
+if rg -U -q 'onLoaded: \{[^}]*root\.scheduleChildSync' "$status_widget"; then
+  fail "loaded status children recursively reschedule their own loaders"
+fi
+rg -q 'interval: 45000' "$status_service" \
+  || fail "recording reconciliation lost its bounded fallback"
+rg -q 'running: root\.runtimeProbesEnabled && root\.recording' "$status_service" \
+  || fail "recording elapsed work is not lifecycle bounded"
+if rg -q 'bar\.run' "$status_service"; then
+  fail "status actions cross the transitional bar-command boundary"
+fi
+rg -q 'launch\(\["omarchy-capture-screenrecording", "--stop-recording"\]\)' \
+  "$status_service" || fail "recording stop is not an argument-vector action"
+rg -q 'launch\(\["omarchy-voxtype-model"\]\)' "$status_service" \
+  || fail "Voxtype model action is not argument-vector based"
+rg -q 'launch\(\["omarchy-voxtype-config"\]\)' "$status_service" \
+  || fail "Voxtype config action is not argument-vector based"
+
+printf 'status plugin regression passed\n'

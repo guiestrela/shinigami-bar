@@ -1,0 +1,234 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
+tmpdir=$(mktemp -d /tmp/shinigami-bluetooth.XXXXXX)
+trap 'rm -rf -- "$tmpdir"' EXIT
+
+fail() {
+  printf 'bluetooth plugin regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -d $omarchy_path/shell ]] || fail "Omarchy shell not found: $omarchy_path/shell"
+[[ -x $quickshell_bin ]] || fail "Quickshell not found: $quickshell_bin"
+
+mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures"
+chmod 700 "$tmpdir/runtime"
+shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
+cp -a -- "$repo_root/shinigami.bluetooth" "$tmpdir/bluetooth"
+cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
+cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"
+install -m 0644 "$repo_root/tests/bluetooth-plugin-smoke.qml" "$tmpdir/shell.qml"
+install -m 0644 "$repo_root/tests/fixtures/BluetoothTestBackend.qml" \
+  "$repo_root/tests/fixtures/BluetoothTestView.qml" "$tmpdir/fixtures/"
+
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "component smoke exited $rc"
+grep -F 'bluetooth plugin smoke passed' <<<"$output" >/dev/null \
+  || fail "success marker missing"
+
+install -m 0644 "$repo_root/tests/bluetooth-backend-regression.qml" \
+  "$tmpdir/shell.qml"
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" --no-color 2>&1)
+status=$?
+set -e
+printf '%s\n' "$output"
+[[ $status -eq 0 ]] || fail "Bluetooth backend regression exited with $status"
+grep -F 'bluetooth backend regression passed' <<<"$output" >/dev/null \
+  || fail "Bluetooth backend success marker missing"
+
+install -m 0644 "$repo_root/tests/bluetooth-device-identity-regression.qml" \
+  "$tmpdir/shell.qml"
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" --no-color 2>&1)
+status=$?
+set -e
+printf '%s\n' "$output"
+[[ $status -eq 0 ]] || fail "Bluetooth device identity regression exited with $status"
+grep -F 'bluetooth device identity regression passed' <<<"$output" >/dev/null \
+  || fail "Bluetooth device identity success marker missing"
+
+install -m 0644 "$repo_root/tests/bluetooth-adapter-hotplug-regression.qml" \
+  "$tmpdir/shell.qml"
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" --no-color 2>&1)
+status=$?
+set -e
+printf '%s\n' "$output"
+[[ $status -eq 0 ]] || fail "Bluetooth adapter hotplug regression exited with $status"
+grep -F 'bluetooth adapter hotplug regression passed' <<<"$output" >/dev/null \
+  || fail "Bluetooth adapter hotplug success marker missing"
+
+install -m 0644 "$repo_root/tests/bluetooth-audio-intent-regression.qml" \
+  "$tmpdir/shell.qml"
+set +e
+output=$(timeout 8 env \
+  QT_QPA_PLATFORM=offscreen \
+  QT_QPA_PLATFORMTHEME= \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" --no-color 2>&1)
+status=$?
+set -e
+printf '%s\n' "$output"
+[[ $status -eq 0 ]] || fail "Bluetooth audio intent regression exited with $status"
+grep -F 'bluetooth audio intent regression passed' <<<"$output" >/dev/null \
+  || fail "Bluetooth audio intent success marker missing"
+
+OMARCHY_PATH="$omarchy_path" \
+  bash "$repo_root/tests/bluetooth-ipc-ownership-regression.sh"
+OMARCHY_PATH="$omarchy_path" \
+  "$repo_root/tests/bluetooth-ipc-harness-signal-regression.sh"
+
+widget="$repo_root/shinigami.bluetooth/BarWidget.qml"
+service="$repo_root/shinigami.bluetooth/Service.qml"
+adapter="$repo_root/shinigami.bluetooth/BluetoothBackendAdapter.qml"
+audio_route="$repo_root/shinigami.bluetooth/BluetoothAudioRouteAdapter.qml"
+model="$repo_root/shinigami.bluetooth/BluetoothModel.js"
+discovery_guard="$repo_root/shinigami.bluetooth/BluetoothDiscoveryGuard.qml"
+panel="$repo_root/shinigami.bluetooth/BluetoothPanel.qml"
+rg -q 'serviceFor\("shinigami\.bluetooth"\)' "$widget" \
+  || fail "Bluetooth widget does not resolve the shared service"
+if rg -q 'bar\.bluetoothService' "$repo_root/shinigami.bluetooth"; then
+  fail "Bluetooth plugin depends on transitional bar-owned Bluetooth state"
+fi
+rg -q 'property var bar: shell \? shell\.bar : null' "$service" \
+  || fail "Bluetooth service does not use the versioned active bar facade"
+[[ $(rg -c '^  BluetoothBackendAdapter \{' "$service") -eq 1 ]] \
+  || fail "Bluetooth service does not own exactly one native adapter"
+if rg -q 'registeredWidget|registeredSource|registeredComponent|panelSource|panelComponent|Loader \{' \
+    "$service" "$adapter"; then
+  fail "Bluetooth still resolves or loads a foreign UI component"
+fi
+jq -e '
+  .plugins[] | select(.id == "shinigami.bluetooth") |
+  (.hostContracts // []) == []
+' "$repo_root/contracts/plugin-suite-v1.json" >/dev/null \
+  || fail "Bluetooth suite metadata still declares a host backend contract"
+rg -q '^import Quickshell\.Bluetooth$' "$adapter" \
+  || fail "Bluetooth adapter does not own the native BlueZ model"
+[[ -f $audio_route ]] || fail "Bluetooth audio route seam is missing"
+rg -q '^import Quickshell\.Services\.Pipewire$' "$audio_route" \
+  || fail "Bluetooth audio route seam does not own PipeWire access"
+rg -q 'BluetoothAudioRouteAdapter' "$adapter" \
+  || fail "Bluetooth adapter does not use the audio route seam"
+rg -Fq 'routeBluetoothDevice(request)' "$audio_route" \
+  || fail "Bluetooth audio route seam lacks its narrow route method"
+rg -Fq 'executeDeviceCommand(deviceCommand(commandAction, address))' "$adapter" \
+  || fail "Bluetooth adapter does not preserve one device-helper mutation path"
+if rg -q 'device\.(connect|disconnect|pair|forget)\(' "$adapter"; then
+  fail "Bluetooth adapter dispatches both native and helper device mutations"
+fi
+rg -Fq 'Model.deviceLists(' "$adapter" \
+  || fail "Bluetooth adapter does not normalize the native device model"
+rg -Fq 'nativeDeviceSnapshots())' "$adapter" \
+  || fail "Bluetooth adapter publishes native QObjects instead of detached records"
+for identity_field in entityId generation adapterId adapterEntityId adapterGeneration; do
+  rg -q "$identity_field" "$adapter" \
+    || fail "Bluetooth action identity lacks $identity_field"
+done
+rg -Fq 'return result && result.ok === true' "$panel" \
+  || fail "Bluetooth panel treats a structured action result as a boolean"
+for device_signal in ConnectedDevices KnownDevices DiscoveredDevices; do
+  rg -U -q "on${device_signal}Changed: \\{[^}]*syncNativePendingActions\\(\\)[^}]*syncNativeAudioHandoffIntents\\(\\)" \
+    "$adapter" \
+    || fail "Bluetooth pending actions ignore ${device_signal} property transitions"
+done
+rg -Fq 'if (discovering && !discoveryOwned) return true' "$adapter" \
+  || fail "Bluetooth refresh can claim an externally owned discovery scan"
+rg -q 'property var discoveryOwnerAdapter: null' "$adapter" \
+  || fail "Bluetooth discovery ownership is not tied to its adapter instance"
+[[ -f $model ]] || fail "Bluetooth native model is missing"
+[[ -f $discovery_guard ]] || fail "Bluetooth discovery guard is missing"
+if rg -q 'IpcHandler \{' "$adapter"; then
+  fail "Bluetooth backend adapter must not register a second IPC owner"
+fi
+rg -q 'property var sessionOwners: \[\]' "$service" \
+  || fail "Bluetooth panel sessions are not centrally tracked"
+rg -q 'adapter\.stopDiscovery\(\)' "$service" \
+  || fail "Bluetooth discovery lacks final-close cleanup"
+rg -U -q 'id: discoveryRetry[^}]*repeat: true[^}]*running: root\.sessionCount > 0 && root\.adapterAvailable[^}]*root\.adapterEnabled && !root\.discovering' \
+  "$service" \
+  || fail "Bluetooth discovery retry is not bounded to an open, powered idle session"
+rg -U -q 'function confirmRequestedDiscovery\(\) \{(.|\n)*?requested\.discovering(.|\n)*?discoveryOwned = true(.|\n)*?\n  \}' \
+  "$adapter" \
+  || fail "Bluetooth discovery ownership is not confirmed from observed adapter state"
+rg -q 'property var audioHandoffIntent: null' "$adapter" \
+  || fail "Bluetooth audio handoff intent is not an explicit latest-only state"
+rg -U -q 'function validatePendingAudioOutput\(\)[^}]*resolveNativeDevice\([^}]*!device\.connected[^}]*!deviceUsesCurrentAdapter' \
+  "$adapter" \
+  || fail "Bluetooth audio handoff identity/state is not revalidated before execution"
+if rg -q 'Quickshell\.Bluetooth|Bluez|Process \{' \
+    "$widget" "$panel"; then
+  fail "screen-local Bluetooth presentation owns backend work"
+fi
+if rg -q 'Process \{|FileView \{' "$service" "$adapter"; then
+  fail "Bluetooth owner uses an unbounded worker instead of native APIs"
+fi
+[[ $(rg -c '^  Timer \{' "$adapter") -eq 5 ]] \
+  || fail "Bluetooth adapter must keep exactly the five bounded lifecycle timers"
+rg -q 'id: heroPowerToggle' "$panel" \
+  || fail "Bluetooth radio toggle is not grouped with adapter status"
+if sed -n '/id: headerActions/,/^        }/p' "$panel" \
+    | rg -q 'PowerToggle'; then
+  fail "Bluetooth radio toggle must not split refresh and close actions"
+fi
+rg -Fq 'const current = rowAt(index)' "$panel" \
+  || fail "Bluetooth section boundaries do not guard transient model rows"
+rg -Fq 'connected ? "\uE1A8" : "\uE1A7"' "$widget" \
+  || fail "connected Bluetooth bar state does not use stable glyph codepoints"
+rg -Fq 'readonly property bool showConnectedCount: !iconOnly && connected' "$widget" \
+  || fail "connected Bluetooth count has no horizontal bar presentation state"
+[[ $(rg -Fc 'visible: root.showConnectedCount' "$widget") -eq 2 ]] \
+  || fail "connected Bluetooth count is not shown in every horizontal mode"
+rg -Fq '? "\uE1A8" : "\uE1A7"' "$panel" \
+  || fail "connected Bluetooth panel state does not use stable glyph codepoints"
+rg -Fq 'if (icon === "phone" || icon === "smartphone") return ""' "$panel" \
+  || fail "Bluetooth phone rows expose untrusted battery precision"
+if rg -q 'omarchy-launch-bluetooth|Bluetooth settings' "$widget" "$panel"; then
+  fail "Bluetooth presentation retains a launcher absent from current Quattro"
+fi
+
+printf 'bluetooth plugin regression passed\n'

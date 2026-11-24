@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""Build and inspect the Shinigami Arch package without a published release."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.shinigami_suite.model import Suite
+PKGBUILD = ROOT / "packaging/aur/PKGBUILD"
+PACKAGE_CONTRACTS = (
+    "plugin-suite-v1.json",
+    "host-facade-v1.json",
+    "package-runtime-v1.json",
+    "backend-boundary-v1.json",
+    "lifecycle-predecessors-v1.json",
+)
+
+
+def run(command: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def expected_package_inventory() -> tuple[dict[str, tuple[int, bytes]], set[str]]:
+    files: dict[str, tuple[int, bytes]] = {}
+    directories = {"usr", "usr/bin", "usr/share"}
+
+    def add_file(source: Path, destination: str, mode: int) -> None:
+        if destination in files:
+            raise RuntimeError(f"duplicate expected package path: {destination}")
+        files[destination] = (mode, source.read_bytes())
+        parent = Path(destination).parent
+        while parent.as_posix() not in (".", ""):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+
+    def add_tree(source: Path, destination: str) -> None:
+        for path in sorted(source.rglob("*")):
+            relative = path.relative_to(source)
+            if "__pycache__" in relative.parts or path.suffix in (".pyc", ".pyo"):
+                continue
+            target = (Path(destination) / relative).as_posix()
+            if path.is_symlink() or (not path.is_dir() and not path.is_file()):
+                raise RuntimeError(f"unsupported expected package source: {path}")
+            if path.is_dir():
+                directories.add(target)
+            else:
+                add_file(path, target, path.stat().st_mode & 0o777)
+
+    for plugin in sorted(ROOT.glob("shinigami.*")):
+        if plugin.is_dir():
+            add_tree(plugin, f"usr/share/shinigami-shell/{plugin.name}")
+    for contract in PACKAGE_CONTRACTS:
+        add_file(
+            ROOT / "contracts" / contract,
+            f"usr/share/shinigami-shell/contracts/{contract}",
+            0o644,
+        )
+    add_file(
+        ROOT / "scripts/shinigami-suite",
+        "usr/share/shinigami-shell/scripts/shinigami-suite",
+        0o755,
+    )
+    add_tree(
+        ROOT / "scripts/shinigami_suite",
+        "usr/share/shinigami-shell/scripts/shinigami_suite",
+    )
+    add_file(ROOT / "VERSION", "usr/share/shinigami-shell/VERSION", 0o644)
+    add_file(
+        ROOT / "packaging/package-metadata.json",
+        "usr/share/shinigami-shell/PACKAGE-METADATA.json",
+        0o644,
+    )
+    add_file(ROOT / "packaging/shinigami-shell", "usr/bin/shinigami-shell", 0o755)
+    add_file(
+        ROOT / "LICENSE", "usr/share/licenses/shinigami-shell/LICENSE", 0o644
+    )
+    add_file(ROOT / "README.md", "usr/share/doc/shinigami-shell/README.md", 0o644)
+    add_file(
+        ROOT / "docs/install.md",
+        "usr/share/doc/shinigami-shell/install.md",
+        0o644,
+    )
+    return files, directories
+
+
+def verify_package_inventory(extract: Path) -> None:
+    expected_files, expected_directories = expected_package_inventory()
+    actual_files: dict[str, tuple[int, bytes]] = {}
+    actual_directories: set[str] = set()
+    usr = extract / "usr"
+    for path in [usr, *sorted(usr.rglob("*"))]:
+        relative = path.relative_to(extract).as_posix()
+        mode = path.lstat().st_mode
+        if path.is_symlink() or (not path.is_dir() and not path.is_file()):
+            raise RuntimeError(f"unsupported installed package path: {relative}")
+        if path.is_dir():
+            actual_directories.add(relative)
+        else:
+            actual_files[relative] = (mode & 0o777, path.read_bytes())
+    if set(actual_files) != set(expected_files):
+        raise RuntimeError(
+            "installed package file inventory drift: "
+            f"missing={sorted(set(expected_files) - set(actual_files))} "
+            f"unexpected={sorted(set(actual_files) - set(expected_files))}"
+        )
+    if actual_directories != expected_directories:
+        raise RuntimeError(
+            "installed package directory inventory drift: "
+            f"missing={sorted(expected_directories - actual_directories)} "
+            f"unexpected={sorted(actual_directories - expected_directories)}"
+        )
+    for path, expected in expected_files.items():
+        if actual_files[path] != expected:
+            raise RuntimeError(f"installed package mode/content drift: {path}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--keep", action="store_true")
+    args = parser.parse_args()
+    missing = [name for name in ("makepkg", "bsdtar") if shutil.which(name) is None]
+    if missing:
+        print(f"missing package rehearsal tools: {', '.join(missing)}", file=sys.stderr)
+        return 2
+
+    temporary = Path(tempfile.mkdtemp(prefix="shinigami-aur-rehearsal-"))
+    try:
+        result = run(
+            [
+                str(ROOT / "scripts/build-release-archive"),
+                "--allow-dirty",
+                "--check-reproducible",
+                "--output-dir",
+                str(temporary / "dist"),
+            ],
+            ROOT,
+        )
+        print(result.stdout, end="")
+        if result.returncode != 0:
+            return result.returncode
+        archive = next((temporary / "dist").glob("*.tar.gz"))
+        checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+        build = temporary / "build"
+        build.mkdir()
+        local_archive = build / archive.name
+        shutil.copy2(archive, local_archive)
+
+        pkgbuild = PKGBUILD.read_text(encoding="utf-8")
+        pkgbuild = re.sub(
+            r"^_source_sha256=.+$",
+            f"_source_sha256={checksum}",
+            pkgbuild,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        pkgbuild = re.sub(
+            r"^source=\(.+\)$",
+            f'source=("file://{local_archive}")',
+            pkgbuild,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        (build / "PKGBUILD").write_text(pkgbuild, encoding="utf-8")
+
+        command = ["makepkg", "--nodeps", "--cleanbuild", "--force", "--noconfirm"]
+        result = run(command, build)
+        print(result.stdout, end="")
+        if result.returncode != 0:
+            return result.returncode
+
+        packages = [
+            path
+            for path in build.glob("*.pkg.tar.*")
+            if not path.name.endswith(".sig")
+        ]
+        if len(packages) != 1:
+            print(f"expected one package, found {len(packages)}", file=sys.stderr)
+            return 1
+        package = packages[0]
+        names = subprocess.run(
+            ["bsdtar", "-tf", str(package)],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.splitlines()
+        metadata = {".BUILDINFO", ".MTREE", ".PKGINFO"}
+        outside_usr = [
+            name for name in names
+            if name and not name.startswith("usr/") and name not in metadata
+        ]
+        forbidden = [
+            name for name in names
+            if "__pycache__" in name or name.endswith(".pyc")
+        ]
+        if outside_usr or forbidden:
+            print(f"forbidden package paths: {(outside_usr + forbidden)[:8]}", file=sys.stderr)
+            return 1
+
+        required = {
+            "usr/bin/shinigami-shell",
+            "usr/share/shinigami-shell/VERSION",
+            "usr/share/shinigami-shell/PACKAGE-METADATA.json",
+            "usr/share/shinigami-shell/contracts/backend-boundary-v1.json",
+            "usr/share/shinigami-shell/contracts/lifecycle-predecessors-v1.json",
+            "usr/share/shinigami-shell/scripts/shinigami-suite",
+            "usr/share/licenses/shinigami-shell/LICENSE",
+        }
+        absent = sorted(required - set(names))
+        if absent:
+            print(f"missing package paths: {', '.join(absent)}", file=sys.stderr)
+            return 1
+
+        extract = temporary / "root"
+        extract.mkdir()
+        subprocess.run(
+            ["bsdtar", "-xf", str(package), "-C", str(extract)], check=True
+        )
+        try:
+            verify_package_inventory(extract)
+        except (OSError, RuntimeError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        payload = extract / "usr/share/shinigami-shell"
+        boundary_check = run(
+            [
+                sys.executable,
+                str(ROOT / "scripts/check-production-boundary"),
+                "--root",
+                str(payload),
+            ],
+            extract,
+        )
+        if boundary_check.returncode != 0:
+            print(boundary_check.stdout, file=sys.stderr)
+            print("installed package boundary validation failed", file=sys.stderr)
+            return 1
+        contract = json.loads(
+            (payload / "contracts/plugin-suite-v1.json").read_text(encoding="utf-8")
+        )
+        try:
+            suite = Suite.load(payload)
+        except Exception as error:
+            print(f"installed package suite validation failed: {error}", file=sys.stderr)
+            return 1
+        expected_plugins = set(suite.plugins)
+        packaged_plugins = {
+            path.name for path in payload.glob("shinigami.*") if path.is_dir()
+        }
+        if packaged_plugins != expected_plugins:
+            print(
+                "packaged plugin inventory drift: "
+                f"missing={sorted(expected_plugins - packaged_plugins)} "
+                f"unexpected={sorted(packaged_plugins - expected_plugins)}",
+                file=sys.stderr,
+            )
+            return 1
+        result = run(
+            [sys.executable, str(payload / "scripts/shinigami-suite"), "--help"],
+            extract,
+        )
+        if result.returncode != 0 or "transactionally" not in result.stdout:
+            print(result.stdout, file=sys.stderr)
+            print("packaged lifecycle help smoke failed", file=sys.stderr)
+            return 1
+        marker = json.loads(
+            (payload / "PACKAGE-METADATA.json").read_text(encoding="utf-8")
+        )
+        if marker.get("version") != contract.get("suiteVersion"):
+            print("package marker and suite version diverge", file=sys.stderr)
+            return 1
+        digest = hashlib.sha256(package.read_bytes()).hexdigest()
+        print(
+            f"AUR rehearsal PASS: {package.name} "
+            f"({len(names)} entries, {digest})"
+        )
+        return 0
+    finally:
+        if args.keep:
+            print(f"Kept rehearsal directory: {temporary}")
+        else:
+            shutil.rmtree(temporary, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.media",
+  "name": "Shinigami Media",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami media controls over Omarchy's MPRIS service.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami media",
+    "description": "Now playing, transport controls, sources, and spectrum",
+    "category": "Media",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G9",
+    "capabilities": [
+      "media"
+    ],
+    "preferredRegion": "right",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

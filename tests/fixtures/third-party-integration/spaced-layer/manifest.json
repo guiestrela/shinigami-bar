@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "example.shinigami-test.spaced-layer",
+  "name": "Shinigami spaced attached layer fixture",
+  "version": "1.0.0",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"}
+}

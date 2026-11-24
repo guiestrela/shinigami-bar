@@ -1,0 +1,400 @@
+# Shinigami 0.2.5 release readiness
+
+> **Document status: Revision-bound validation record.** This page separates
+> recorded product evidence from release, package, and physical acceptance.
+> It cannot override [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
+
+## 0.2.5 stable-release scope and acceptance boundary
+
+0.2.5 is the current stable release target, focused on stabilization rather than
+new UI. The `0.x` series is release-stable but API-unstable: release status does
+not promise frozen plugin or configuration APIs. Release texts, the date and
+known-points wording require Maintainer approval; this preparation record is
+not publication approval.
+
+Supported presentation is horizontal Top and Bottom on Omarchy Quattro. The
+pinned source stack is Omarchy 4.5.0, Quickshell 0.3.2 and Qt 6.12, with exact
+identities below. Historical physical acceptance is single-output, not a live 4.5.0 pass; physical
+multi-output, mixed-scale, hotplug and DPMS/suspend/resume remain distinct gates.
+Enterprise Wi-Fi and Bluetooth device workflows also need their own hardware
+or credentials. Private fixtures do not replace those checks.
+
+The forward reference is fixed at
+`551dc62969046709e7c6176dbdbccacce580a487` (2026-11-11), recorded in
+`contracts/baselines/omarchy-forward-compat-551dc629.json`. Source parity and Agents
+pin v4.5.0 (`ac2690cd7`); the installed-package gate pins 4.5.0-3.
+Neither pin transfers historical results to 0.2.5 or claims support
+for arbitrary newer hosts. Complete candidate aggregates, clean-commit release
+evidence and live acceptance must each identify their actual inputs.
+
+The frozen rolling predecessor is published 0.2.4 (release 445672648,
+2026-11-14T23:31:35Z). Tag `12763c68` and main integration merge `700180ef`
+share its release tree and unchanged payload. Older supported identities remain
+admitted. Use the [update and recovery guide](install.md#update); unknown or
+modified installations need diagnosis, not manually rewritten lifecycle state.
+
+## Historical Beta 16.5.1 hotfix and validation boundary
+
+The approved release date is **2026-10-23**. The release branch starts from
+main integration merge `1d7a00b2742fb4d479774a4f722c6c2ef96d0601`, whose tree
+equals published Beta 16.5 tag `8b34d030a303aa35d6033923c8f3c38c4c25b29b`.
+Both revisions are admitted with unchanged published payload pins. The rolling
+predecessor fixture recorded that published Beta 16.5 release for the hotfix.
+
+The hotfix accepts both `style.*` and `appearance.*` picker menu keys, preserving
+the host actions and warning without a routing block when neither family is
+present. The affected lifecycle paths are install, update, repair and migrate.
+Release-identity maintenance changes no QML behavior. The product fix separately
+restores Reactor quote text on Qt 6.12: arrays crossing a QML `var` signal arrive
+as sequences, so an Array-only guard discarded every quote choice. The fix
+converts the sequence without changing renderer timing or geometry. The settled
+Bar layout context is JSON-cloned once at the receive boundary, preserving strict
+provider-group/native-section validators. Audio stream-label resolution converts
+Quickshell player sequences to local arrays while retaining QObject identity.
+
+The accepted candidate is tag + patches 01–05 + replacement 06-r2, snapshot
+`1dc8c3be2ed076401e0fd90cdf235a9aaa17c63e`, tree
+`6677721db7289df940ab76042763c0c4fe476139`. Its payload identities are:
+
+- Suite (24 plugins): `a4a0b43a04603a9b40354df1498e74b4b42e55158c1d3f9d68c9460db30802cf`.
+- Bar: `1d1a47515cafa53176338645f8525f8e6e5021f124948eff6794b708d02aacc9`.
+- Audio: `7cb7693721fc4fb75e405d565a1579d8a32c5dc1fea6177dbba6c518127ac79e`.
+
+Only the current candidate's Bar and Audio payload pins change in 06-r2; all
+published predecessor pins remain unchanged. The release cut preserves these
+product bytes. The source archive checksum is a separate finalisation step.
+
+**Candidate gates:** all 13 requested groups passed on that exact snapshot.
+
+| Gate | Candidate result |
+| --- | --- |
+| Suite | 180/180 in each of five forms: 4.0.6 script/module, retained 4.0.4 script/module, forward script. |
+| Package / admission / baseline | 27/27, 40/40, and baseline contract PASS. |
+| Lifecycle | Both complete stable/forward groups passed 9/9, including dry-run. |
+| Native catalog resource (gate 11) | One run; candidate warm growth 424 KiB against 768 KiB. Exact Beta 13 control 0 KiB, below-CPU control 4 KiB, restored candidate 388 KiB; all seven mutants failed as intended. |
+| Complete aggregates | Stable 4.0.6 and forward `246f33a2` completed with exit 0, including renderer PASS and the final complete-contract markers. |
+
+Candidate and all four external baseline identities remained unchanged before
+and after every group and at the final audit. All 13 outer roots and 18 recorded
+owned cgroups were absent afterward, with no reported survivors. These are
+candidate results, not exact-final release or physical acceptance.
+
+**Menu proof:** the forward pin
+`246f33a2fef66411c990860d88e0823ae83987fc` predates the rename and does not prove
+appearance-family routing. Suite coverage and Hermes's offline replay use the
+real stock menu from Omarchy `6bee248a3`: Beta 16.5 rejects it, the candidate
+routes it, and removal restores the original bytes. No live host with that
+revision was available; machine2 and .140 could not be powered on. The Maintainer
+accepted this offline proof in place of the live appearance-menu check. Later
+Phase D live acceptance runs on main only; it has not run for this release.
+
+The first exact-final run on `3ec5346e` stopped at gate 16's bar-switch log
+guard on native Ui color warnings under Quickshell 0.3.2 / Qt 6.12; Hermes
+reproduced the same diagnostic lines with unchanged Beta 16.5 code and attributed
+the red to the host stack. The preceding test-only fix-up commit applies the
+approved native-Ui warning allowance without changing product code. The second
+exact-final run on `8b8fa237` passed all 26 release gates but stopped at collector
+gate 9: Hermes attributed it to the installed-package regression's stale 4.0.4
+version pin on the same unchanged Omarchy 4.0.6 host. A further preceding
+test-only fix-up corrects that pin to 4.0.6 without changing product code.
+No exact-final pass transfers from either stopped run; results for this re-cut
+remain pending against literal `FINAL_SHA`.
+
+**Final release boundary:** exact-final gates remain pending against `FINAL_SHA`:
+26 release gates, the complete 14-gate collector, separate 37-step bar-switch,
+local package rehearsal, clean-status and reproducible archive verification.
+Standalone renderer-rest and audio/media results must also be bound to the
+exact final commit; the candidate aggregates do not relabel them as completed
+standalone gates. Independent release review and applicable live/physical
+acceptance remain separate. The candidate snapshot is not the tag target.
+
+### Preserved attribution and earlier attempts
+
+On the initial fix-only tree, five suite runs passed 180/180, package 27/27 and
+admission 40/40. Lifecycle stopped on Quickshell package drift. Resource gate 11
+recorded 552 KiB warm PSS growth against 512 KiB. The authorized unchanged-tag
+control and candidate repeat passed at 448 KiB and 508 KiB respectively on the
+updated host stack, with all controls passing; the original failure is retained.
+No ceiling changed during attribution. Historical Beta 16.5 exact-final measured
+400 KiB on the old stack. The fixture never executes the changed lifecycle
+Python. The Maintainer subsequently authorized **768 KiB** warm-growth fixture
+maintenance for the Omarchy 4.0.6 / Quickshell 0.3.2.r7 / Qt 6.12 stack. Wrapper,
+probe and parser fixtures are synchronized; CPU/cadence and the separate
+512 * 1024 host-PSS bound remain unchanged. None of the original observations
+is erased by the accepted candidate's 424 KiB result.
+
+Patch 5 pins Omarchy/Settings 4.0.6-1 and Omarchy-repository Quickshell
+0.3.2.r7.g2b4501a-1 from recorded pacman identity/provenance. The observed stack
+also has Qt Base 6.12.0-3, Qt Declarative 6.12.0-2 and Mesa 1:26.2.5-1; these
+are evidence, not additional manifest pins. The Quickshell binary reports
+`Quickshell 0.3.2 (revision 2b4501a282689792b62e94f3fb30d8f512324fe6, distributed by Omarchy)`.
+Collector probes match exact package and binary identities, including pkgrel.
+
+The 4.0.6 package/source shell and config inventories are exact. Package bin has
+446 entries, source 449: `omarchy-debug`, `omarchy-debug-idle` and
+`omarchy-upload-log` are source-only, confirmed against the cached official
+4.0.6-1 archive. All shared executable bytes match; each bin roster stays pinned
+independently. `pacman -Qkk` found no altered Omarchy/Quickshell files; its exit 1
+reflects four unreadable Settings `/etc/sudoers.d/omarchy-*` files. Full Settings
+package integrity is not claimed; no permission changes were made.
+
+Stable gates move to 4.0.6 (`237f1b40`). Native catalog runtime/resource source
+proof stays at 4.0.4 (`c668141e`, 183 shell files), independently supplied by
+`SHINIGAMI_NATIVE_CATALOG_OMARCHY_PATH`; the collector now binds four external
+inputs. Old manifest bytes stay unchanged; warm growth uses the reviewed 768 KiB ceiling.
+This source-only historical pin does not assert old Quickshell provenance on
+the new host. Actions-variable changes and exact-final acceptance remain separate.
+
+The tag + patches 01–05 snapshot passed reduced gates, both complete lifecycle
+groups and its single gate 11 run (392 KiB warm growth under 768 KiB), but both
+aggregates exited 1. Their logs ended after a passing ShinigamiConfig fixture
+because Qt 6.12 sent later non-TTY console output to journald. Read-only tag
+diagnosis attributed both reds to `reactor-renderer-regression.qml`:
+`quote fit did not skip an oversized candidate`. Theme-palette and reactor-model
+had passed silently in between. The existing renderer fixture is the observed-red
+coverage for patch 6; no new test is added. `QT_FORCE_STDERR_LOGGING=1` is now
+explicit in aggregate/shared fixture launches; native runtime/resource sandbox
+environments already set it. Both complete 06-r2 aggregates passed as recorded
+above; earlier passes or silent logs are not substituted for them.
+
+The initial patch 6 snapshot `f114ba1c` passed all five suite forms but stopped
+at package tests (27 tests, one failure): the candidate payload literal in the
+package fixture had not been updated. No later gate ran in that attempt. The
+replacement 06-r2 corrects only that literal above `f114ba1c`; product bytes and
+payload are unchanged. Its complete 13-group run is the accepted result above.
+The original failed attempt and its cleanup audit remain preserved.
+
+## Historical Beta.16.5 product series and validation boundary
+
+The accepted local C1–C8 series is based on
+`aec6c0a3266d71f6a5f9cfa17562d8bec0ce9b17`, the main integration merge of
+published Beta.16.4. Its complete tree equals the frozen predecessor tag
+`64b9369559b0de2ffdc1faf1c563326c8173035c`. Both predecessor revisions remain
+admitted with unchanged Beta.16.4 plugin and suite payload pins.
+
+| Commit | Accepted revision |
+| --- | --- |
+| C1 | `077bdd52fb636ebcfcbfd98b3d04f8e22837a658` |
+| C2 | `2d4e2b10ecc1d8956ee57321b0457a81a60dbfd2` |
+| C3 | `0c15f588383b5c4ebb42d9196a332b6df36487d6` |
+| C4 | `bc488cf3aae9f3a341c3b31bcc47886303ecf18f` |
+| C5 | `e744f50e6972de5d37b23ea234e2d33f92184fda` |
+| C6 | `784beb417c8e1005fa5eaed546c382ee2768041b` |
+| C7 | `56192010503c7437909f8152db3570e4136947dc` |
+| C8 | `201c4130dc9e7cae6bcd7a6c770f08a01817e83a` |
+
+Independent patch-to-commit fidelity review passed for all eight commits.
+C8 reproduces the accepted R9 source bytes and modes; this audit is not a
+substitute for final release gates. R9 payload identities remain:
+
+- Suite (24 plugins): `a090b82858c554f02d44030755f779b2827ae51e55bca750b7163d5b330472dd`.
+- Media: `e2e5a12b492443a836ce2e5b6c352e68be0d7779f8bc462d89ea30d792aaf928`.
+- Control Center: `078c0cc95304da956b2487953dd6703425517875178fd890cbb2a384b662e521`.
+
+Omarchy 4.0.5 is admitted as the stable reference; the forward reference is
+`246f33a2fef66411c990860d88e0823ae83987fc`. The installed-package/source-parity
+4.0.4 and Agents pins below remain separate proof axes.
+
+**Candidate gates:** R8 (patches 01–32, snapshot 14; suite
+`89682a68a8816c96ffba131f165258e3c0536ac0a0bbaafdb40a044271bae246`)
+passed the complete stable 4.0.4, forward `246f33a2` and additional 4.0.5
+aggregates; audio/media on all three references; suite 180/180 in each of the
+stable script, stable module and forward script runs; package 27/27 and
+admission 40/40; and renderer-rest 140/140 exact comparisons against Beta.16.4.
+Lifecycle passed eight members on each primary reference (stable/forward),
+with the ninth, dirty-source dry-run, correctly refused. R9 (R8 + patches
+33–34; four paths for Media's `noise_reduction` change and repin) passed
+audio/media on all three references, suite 180/180 in the same three invocation
+forms, package 27/27, admission 40/40 and lifecycle 8/9 on each primary
+reference, again with the dirty-source dry-run correctly refused. Complete
+aggregates and renderer-rest were intentionally not repeated for R9. The
+standalone 37-step bar-switch fixture passed 37/37 on an earlier round-402
+16.5 payload; it is not part of those aggregates and was not rerun for R8/R9.
+Host round trips (Shinigami → stock bar → back, including retained layouts)
+were checked live on main, .140 and machine2 (R4 only) instead; these are not
+new 37-step fixture results. Exact-final-commit gates remain pending against
+`FINAL_SHA`.
+
+**N3 window 02 (R9 versus Beta.16.4):** accepted analysis of 480 private
+renderer sessions found playing-state process CPU about 19% lower for Default
+and 51% lower for Full (median of paired five-second windows, lower in every
+pair). These figures come from a software-rendered fixture with a synthetic
+spectrum; they describe the tested renderer scenarios, not GPU smoothness or
+real-cava CPU. They do not establish a blanket desktop speedup.
+
+**Live validation:** main ran Omarchy 4.0.4 / Quickshell 0.3.1; .140 ran
+Omarchy 4.0.6 / Quickshell 0.3.2, including the real-music cava smoothing
+comparison. Machine2 evidence covers R4 only, not the final R9 Media/catalog
+candidate. Fixture results and these revision-scoped live results are distinct.
+
+**Final release boundary:** the approved release date is 2026-10-22. The
+exact-final-commit gates, reproducible archive verification and independent
+release review are pending and will be recorded against `FINAL_SHA`. C8 is
+not the final release commit or tag target. Published-predecessor and peeled-tag
+identity must be rechecked for final evidence. Historical Beta.16.4 results
+below do not transfer to this release.
+
+## Historical Beta.16.4 candidate and published predecessor
+
+The Beta.16.4 candidate adds Memory Sweep, Frost for V2 Notch, bounded charging
+plasma, Rings placement fixes, persistent power-profile selection, shared
+host-widget embedding and host identifiers, and Audio resolver recovery.
+Its 24-plugin suite payload digest is
+`bc60b476803f72d5604e592647db7f50c1f00723b986ae87e7730cba79779d34`.
+This is a release-preparation snapshot, not final clean-commit evidence. The
+complete contract, isolated Quattro lifecycle, package rehearsal, full 14-gate
+collector, and reproducible archive verification must record their exact final
+commit externally. No predecessor gate result transfers to this candidate.
+
+Beta.16.3 was published on 2026-10-10 as a GitHub prerelease from
+`1a13d6be7d5b4bc9aa03590b77b6531aefcad497`. It was the frozen rolling
+predecessor for Beta.16.4; [`release-predecessor.json`](../tests/fixtures/release-predecessor.json)
+recorded Beta.16.4 during Beta.16.5 preparation and Beta.16.5 for the hotfix.
+The current 0.2.5 selection is recorded above.
+That exact tag checkout and the source-installation integration merge
+`494fa69b9e348fa595eb4d55d2e11b4aa2fd4470` (PR #77) are admitted by
+[`lifecycle-predecessors-v1.json`](../contracts/lifecycle-predecessors-v1.json),
+with the unchanged Beta.16.3 payload digest
+`9d8cca435b465c52b0ff21d7a6780f90251a805dc1d1e72b78473ca2a8338a88`.
+All 24 archived plugin digests match the published pins. The integration merge
+changes documentation and its regression, not plugin payloads; its complete Git
+tree is not identical to the release tag. Older exact identities remain admitted;
+a version string alone never authorizes recovery or replacement. Installation
+remains source-based; OPR packaging is planned, not AUR publication.
+
+## Historical Beta.16.4 evidence and outstanding gates at that snapshot
+
+| Gate | Evidence and boundary |
+| --- | --- |
+| Complete source contract | Pending exact release-commit evidence at this preparation snapshot. |
+| Isolated Quattro lifecycle | Pending exact release-commit evidence, retaining all 32 generations. |
+| Retained runtime paths | Historical Beta.13 → Beta.14.1 package arm (5), fresh checkout (6), Beta.15 (7), Beta.15.2 (7), and rolling frozen Beta.16.3 → candidate (7). No arm may be dropped. |
+| Private renderer and lifetime evidence | All 37 bar-switch steps and 140 rest cases match the installed Beta.16.4 candidate `5732887`. Private Process evidence covers discarded and stalled Audio resolver recovery; existing fixtures cover embedded-child continuity and Audio panel identity. No physical-output or physical suspend/resume claim. |
+| Private renderer performance | 600 sessions against Beta.16.3, 1,600 events, 160 groups. Median per-group CPU change: focus −29.7%, style −11.3%, bar +0.14%. Rings style changes stabilize earlier in all eight contexts. Individual slower measurements remain; no blanket latency or desktop speedup claim. Accepted for release preparation. |
+| Compatibility preparation | Forward manifest `4c1b4cb3` supersedes `e71a816e`; older manifests remain. Manifest, panel geometry and focused Quattro/style checks pass. Complete forward evidence after release-identity alignment remains required; the pin is not a complete compatibility pass. |
+| Live installation and hardware | Keep-settings installation and reviewer live acceptance must be recorded separately. Fixtures do not establish physical multi-output, hardware, credential or real desktop input acceptance. |
+| Release/package verification | Reproducible archive, checksum agreement, clean-commit gates and rehearsal, independent review, full collector and remote verification remain separate publication requirements. |
+
+The historical package arm is not a Beta.16.4 installed-package upgrade proof.
+Private Wayland/Mesa captures are not live GPU, layer-shell, hotplug, or physical
+multi-output acceptance. Earlier release passes do not transfer to this candidate.
+Rings placement is covered by private fixtures; release live acceptance remains
+separate. Notch can still oscillate at DPR 1.6. Notification focus depends on a
+supported sender identity. Memory Sweep can lose its service owner: a dialog may
+disappear, or an authorized command may continue while a replacement owner can
+permit another run. Real Polkit/root and owner-loss acceptance remain separate.
+
+## Pinned host contracts
+
+The release targets Omarchy 4.5.0-3 with source parity and Agents at v4.5.0;
+the installed-package gate pins 4.5.0-3.
+Pinned configuration is not a physical-acceptance claim.
+
+| Component | Required identity |
+| --- | --- |
+| Omarchy | `omarchy 4.5.0-3` |
+| Omarchy Settings | `omarchy-settings 4.5.0-3` |
+| Quickshell | `quickshell 0.3.2.r7.g2b4501a-1` |
+| Installed package profile | `installed-package-v4.5.0` |
+| Source parity | `installed-source-parity-v4.5.0`, `ac2690cd7be4f47e4a255f5e2e78d904d436b068` |
+| Native catalog source-only reference | `v4.0.4`, `c668141e9c42b13c80c9ca4ea108e11708c5e8a5` |
+| Agents reference | `v4.5.0`, `ac2690cd7be4f47e4a255f5e2e78d904d436b068` |
+| Forward reference | `551dc62969046709e7c6176dbdbccacce580a487` |
+
+The manifests in [`contracts/baselines/`](../contracts/baselines/) bind consumed
+files and subtrees. Historical 4.0.4/4.0.3/4.0.2 package/source and 4.0.5 source
+manifests remain unchanged, as do the historical 4.0.6 package/source, v4.0.0 Agents and
+0d8edf38 forward manifests; none substitutes for the current pins. Provisioning is
+covered by the [validation-host runbook](development/validation-host.md);
+[host compatibility](architecture/quattro-compatibility.md) describes the proof axes.
+
+## Release verification workflow
+
+These requirements apply to each release; this list is not a record that a step
+was performed. Each operation needs its own maintainer Go.
+
+1. Complete live review and resolve accepted findings. Approve the changelog,
+   highlights, downgrade warning, and documentation.
+2. Finalize and commit the approved texts, including the agreed changelog release
+   date before checksum preparation, and run source/documentation checks.
+   Recompute all 24 plugin digests and compare candidate pins; docs outside plugin
+   roots change archive bytes, not the plugin-only suite digest. Never invent
+   future checkout revisions or alter published predecessor identities.
+3. Build the archive reproducibly, align PKGBUILD's upstream version and checksum
+   plus `.SRCINFO`, run `check-aur-package`, approve that packaging commit, and
+   verify a byte-identical clean-commit rebuild. All shipped documentation must
+   precede the checksum step.
+4. Run the final clean-commit collector with `umask 022`, all 14 gates, exact
+   durable baselines, no ambient Git overrides, and no concurrent candidate
+   writers. Recheck the rolling published predecessor before evidence; do not
+   drop arms. Evidence must bind the exact final release commit.
+5. Complete independent review with zero actionable findings and the applicable
+   physical/package gates. Record unavailable hardware and credentials honestly.
+6. Release phases A–D: branch push and PR/checks; approved merge and tree check;
+   controlled runner/tag/publication window; remote asset and runtime follow-up.
+   Push, PR, merge, runner actions, tag, and publication each require their own
+   authorization. Follow the [release workflow](development/release.md).
+
+## Known limits and downgrade warning
+
+- Horizontal Top and Bottom bars are supported. Vertical bars are outside the 0.2.5 scope.
+- Notifications: the host hands plugins only the Do-Not-Disturb switch, so Live rows are
+  unavailable in the Shinigami panel. Recent comes from the host's persisted history. On
+  Omarchy 4.0.6 the list, per-row removal and "Clear all" work as before; on the new
+  notification engine (Omarchy 4.5.0, source pin ac2690cd7) Recent is read-only
+  and those two controls are hidden because the host offers no history mutation. Clicking a
+  Recent row only focuses the application. Notification focus remains limited when the
+  sender provides no supported application identity.
+- Omarchy 4.5.0 is pinned to source tree ac2690cd7 and isolated fixtures only, not
+  a live 4.5.0 acceptance. Support for every 4.5 build is not implied.
+- Content-sized shells (Fit, Dock, Notch): after a layout change that crosses a responsive
+  threshold (for example the centre group hiding or showing its date), the shell can settle
+  through a few one-device-pixel steps for well under a second. The self-induced relayout
+  cycle of the status group at fractional scales is fixed (shell origin on the device grid,
+  plus #92). Live acceptance of the final candidate on a fractional-scale host is pending.
+- Tray-drawer entries are retained and disclosed but not rendered in Shinigami; use the stock
+  Omarchy bar for their drawer presentation.
+- Physical multi-output, mixed-scale, hotplug, DPMS/suspend/resume, enterprise Wi-Fi and
+  Bluetooth device workflows need their own live evidence. No blanket hardware acceptance
+  follows from these fixtures.
+- Local whole-ink, workspace/Pacman, meter, Calendar overhang and charge-bolt raster limits
+  are not declared solved by the ordinary-text baseline work.
+- Bluetooth power affects all radios through the host helper and cannot clear a hardware
+  block. The 20-second pending deadline does not stop the detached process or prevent later
+  effects.
+- The horizontal update count shares the bar-value baseline and CPU ink spacing.
+  Its leading reservation grows on an output-scale grid. Status inner-spacing
+  savings are returned to the group width; centered Fit preserves whole-physical-
+  pixel movements relative to the previous raster phase. Complete other-widget
+  rectangles are not all RGBA-identical after translation, and the restored V1
+  island edges change slot backgrounds. Exact whole-bar pixel identity and
+  physical acceptance are not claimed.
+- Downgrade: Beta.15.4 and older cannot read V1 `order.parked`; they reset V1 order, roles
+  and splits while retaining other settings and V2. `--keep-settings` does not prevent this.
+  Back up the settings before a downgrade (see install.md) and restore them with a matching
+  payload.
+- Packaging: `shinigami-shell` is published through omarchy-pkgs (omacom/omarchy-pkgs#2119,
+  2026-11-04); AUR is not the target.
+
+## Immutable asset and publication gate
+
+Require a reproducible exact-clean-commit archive, complete inventory and
+SHA-256 sidecar, matching PKGBUILD/`.SRCINFO`, accepted release evidence, and
+package rehearsal. The workflow verifies remote direct/peeled tag identity,
+uploads only five declared assets to a draft, downloads and checks each name,
+size and SHA-256, and repeats tag and asset checks immediately before publication.
+Any failure stays a draft; retries may replace only declared assets. Never move
+an already published tag. Server-side immutable `v*` tag rules must independently
+block updates and deletion. See [packaging](development/packaging.md).
+
+## Historical evidence
+
+Beta.13's single-output Omarchy 4.0.3 acceptance remains historical in
+[Get started](getting-started.md#know-the-release-boundary). The paused
+[Beta.14 validation record](development/beta14-validation.md) is not a current
+release checklist. Beta.16's published changes and limits remain in its
+[release notes](../.github/release-notes/v0.1.1-beta.16.md). Its earlier product
+revision `30746f5` passed the complete contract and 32-generation runtime;
+those fixtures retained known teardown warnings and did not establish blanket
+hardware acceptance. Earlier readiness snapshots remain in Git history; none
+confers acceptance on 0.2.5.

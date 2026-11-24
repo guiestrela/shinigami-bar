@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.center",
+  "name": "Shinigami Center",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami clock, calendar, weather, status, and update center.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami center",
+    "description": "Clock, date, calendar, weather, status, and updates",
+    "category": "System",
+    "defaultSection": "center",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G8",
+    "capabilities": ["clock", "weather", "system-update"],
+    "preferredRegion": "center",
+    "requires": [
+      "shinigami.state",
+      "shinigami.status"
+    ],
+    "recommends": []
+  }
+}

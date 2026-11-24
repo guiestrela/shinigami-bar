@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.indicators",
+  "name": "Shinigami Indicators",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Show system status and quick controls.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Indicators",
+    "description": "Show system status and quick controls",
+    "category": "Utilities",
+    "defaultSection": "center",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "indicators",
+    "requires": [
+      "shinigami.state",
+      "shinigami.status"
+    ],
+    "recommends": []
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "example.shinigami-test.aliased-ipc",
+  "name": "Shinigami aliased IPC integration fixture",
+  "version": "1.0.0",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"}
+}

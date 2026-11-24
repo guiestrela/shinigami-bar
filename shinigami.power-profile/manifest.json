@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.power-profile",
+  "name": "Shinigami Power Profile",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami power-profile status and profile selector.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami power profile",
+    "description": "Active power profile with quick cycling and selection",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G14",
+    "requires": [
+      "shinigami.state",
+      "shinigami.power-state"
+    ],
+    "recommends": []
+  }
+}

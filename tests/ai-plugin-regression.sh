@@ -1,0 +1,412 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$repo_root/tests/lib/baselines.sh"
+source "$repo_root/tests/lib/host-diagnostics.sh"
+shinigami_load_omarchy_baseline
+omarchy_path=$OMARCHY_PATH
+quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
+tmpdir=$(mktemp -d /tmp/shinigami-ai-plugin.XXXXXX)
+lifecycle_group=""
+lifecycle_wrapper=""
+
+cleanup() {
+  [[ -z $lifecycle_group ]] \
+    || kill -KILL -- "-$lifecycle_group" 2>/dev/null || true
+  [[ -z $lifecycle_wrapper ]] \
+    || kill -KILL "$lifecycle_wrapper" 2>/dev/null || true
+  rm -rf -- "$tmpdir"
+}
+trap cleanup EXIT
+
+fail() {
+  printf 'AI plugin regression failed: %s\n' "$*" >&2
+  exit 1
+}
+
+[[ -d $omarchy_path/shell ]] || fail "Omarchy shell not found: $omarchy_path/shell"
+[[ -x $quickshell_bin ]] || fail "Quickshell not found: $quickshell_bin"
+
+mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures" "$tmpdir/home/.claude" \
+  "$tmpdir/home/.codex" "$tmpdir/state/omarchy/agents/usage" \
+  "$tmpdir/omarchy/bin"
+chmod 700 "$tmpdir/runtime"
+shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
+cp -a -- "$repo_root/shinigami.ai" "$tmpdir/ai"
+install -m 0644 "$repo_root/tests/fixtures/AiPanelHost.qml" \
+  "$tmpdir/ai/ShinigamiPanel.qml"
+cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
+cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"
+install -m 0644 "$repo_root/tests/ai-plugin-smoke.qml" "$tmpdir/shell.qml"
+install -m 0644 "$repo_root/tests/fixtures/AiTestPanel.qml" "$tmpdir/fixtures/"
+printf '{}\n' >"$tmpdir/home/.claude/.credentials.json"
+: >"$tmpdir/home/.claude/history.jsonl"
+printf '{}\n' >"$tmpdir/home/.codex/auth.json"
+record_now=$(date --utc --iso-8601=seconds)
+jq --arg updatedAt "$record_now" '.updatedAt = $updatedAt' \
+  "$repo_root/tests/fixtures/ai-agents/claude-ready-empty.json" \
+  >"$tmpdir/state/omarchy/agents/usage/claude.json"
+jq --arg updatedAt "$record_now" '.updatedAt = $updatedAt' \
+  "$repo_root/tests/fixtures/ai-agents/codex.json" \
+  >"$tmpdir/state/omarchy/agents/usage/codex.json"
+chmod 0644 "$tmpdir/state/omarchy/agents/usage/claude.json" \
+  "$tmpdir/state/omarchy/agents/usage/codex.json"
+install -m 0755 \
+  "$repo_root/tests/fixtures/ai-agents/omarchy-agent-usage-update" \
+  "$tmpdir/omarchy/bin/omarchy-agent-usage-update"
+for collector in claude codex fireworks; do
+  install -m 0755 /usr/bin/true \
+    "$tmpdir/omarchy/bin/omarchy-agent-usage-$collector"
+done
+
+mkdir -p "$tmpdir/generic" "$tmpdir/omarchy/shell/plugins/agents/assets"
+cp "$repo_root/shinigami.ai/assets/codex.svg" "$tmpdir/omarchy/shell/plugins/agents/assets/agy.svg"
+cp "$tmpdir/omarchy/shell/plugins/agents/assets/agy.svg" "$tmpdir/omarchy/shell/plugins/agents/assets/agy-light.svg"
+for id in claude codex fireworks grok agy; do
+  jq -n --arg id "$id" --arg now "$record_now" '{schemaVersion:1,id:$id,name:$id,updatedAt:$now,
+    ready:($id != "fireworks"),hasLocalStats:false,tierLabel:"Test",unknownKey:"ignored",
+    limits:(if $id == "fireworks" then [] else [{label:"Session",percent:(if $id == "agy" then 0.29 else 0.41 end),resetsAt:""}] end),
+    totalPrompts:1,usageStatusText:"Sign in to Fireworks",authHelpText:"Authenticate"}' >"$tmpdir/generic/$id.json"
+done
+
+if [[ -n ${SHINIGAMI_TEST_EMPTY_AGENTS_DIR:-} ]]; then
+  mkdir -p "$tmpdir/generic/empty"; for record in "$SHINIGAMI_TEST_EMPTY_AGENTS_DIR"/*.json; do jq --arg updatedAt "$record_now" '.updatedAt = $updatedAt' "$record" >"$tmpdir/generic/empty/${record##*/}"; done
+fi
+set +e
+output=$(timeout 8 env \
+  HOME="$tmpdir/home" \
+  XDG_STATE_HOME="$tmpdir/state" \
+  SHINIGAMI_TEST_OMARCHY_PATH="$tmpdir/omarchy" \
+  SHINIGAMI_TEST_AGENT_USAGE_DIR="$tmpdir/state/omarchy/agents/usage" \
+  SHINIGAMI_TEST_GENERIC_DIR="$tmpdir/generic" \
+  SHINIGAMI_TEST_MODEL_USAGE_SOURCE="file://$repo_root/tests/fixtures/ai-model-usage/Main.qml" \
+  QT_QPA_PLATFORM=offscreen \
+  WAYLAND_DISPLAY= \
+  XDG_RUNTIME_DIR="$tmpdir/runtime" \
+  QML_IMPORT_PATH="$omarchy_path/shell${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}" \
+  QML2_IMPORT_PATH="$omarchy_path/shell${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}" \
+  "$quickshell_bin" -p "$tmpdir" 2>&1)
+rc=$?
+set -e
+
+printf '%s\n' "$output"
+[[ $rc -eq 0 ]] || fail "component smoke exited $rc"
+grep -F 'ai plugin smoke passed' <<<"$output" >/dev/null \
+  || fail "success marker missing"
+if grep -E ' WARN| ERROR|CRITICAL|TypeError|ReferenceError|Unable to assign' <<<"$output" \
+    | host_filter_startup_diagnostics \
+      -e 'Unable to find hyprland socket. Cannot connect to hyprland.' \
+      -e "Cannot open: file://$tmpdir/omarchy/shell/plugins/agents/assets/grok.svg" >/dev/null; then
+  fail "component smoke emitted a QML/runtime warning or error"
+fi
+
+legacy_claude="$omarchy_path/shell/plugins/model-usage/providers/Claude.qml"
+legacy_codex="$omarchy_path/shell/plugins/model-usage/providers/Codex.qml"
+agents_manifest="$omarchy_path/shell/plugins/agents/manifest.json"
+if [[ -f $legacy_claude && -f $legacy_codex ]]; then
+  set +e
+  legacy_output=$(timeout 8 env \
+    HOME="$tmpdir/home" \
+    QT_QPA_PLATFORM=offscreen \
+    WAYLAND_DISPLAY= \
+    XDG_RUNTIME_DIR="$tmpdir/runtime" \
+    SHINIGAMI_TEST_LEGACY_CLAUDE_SOURCE="file://$legacy_claude" \
+    SHINIGAMI_TEST_LEGACY_CODEX_SOURCE="file://$legacy_codex" \
+    "$quickshell_bin" -p "$repo_root/tests/ai-legacy-provider-contract.qml" \
+    2>&1)
+  legacy_rc=$?
+  set -e
+  printf '%s\n' "$legacy_output"
+  [[ $legacy_rc -eq 0 ]] \
+    || fail "pinned legacy provider contract exited $legacy_rc"
+  grep -F 'AI legacy provider contract passed' <<<"$legacy_output" >/dev/null \
+    || fail "pinned legacy provider contract marker missing"
+elif [[ -e $legacy_claude || -e $legacy_codex ]]; then
+  fail "host exposes only part of the legacy model-usage provider contract"
+else
+  [[ -f $agents_manifest ]] \
+    || fail "host exposes neither legacy model-usage nor current agents"
+  jq -e '
+    .id == "omarchy.agents"
+    and .kinds == ["bar-widget"]
+    and .entryPoints.barWidget == "Panel.qml"
+    and (.barWidget.aliases | index("model-usage")) != null
+  ' "$agents_manifest" >/dev/null \
+    || fail "current agents replacement contract drifted"
+  printf 'AI legacy provider contract absent; current agents replacement selected\n'
+fi
+python3 "$repo_root/tests/opencode-usage-regression.py" \
+  || fail "OpenCode current-model scope regression failed"
+[[ -s $tmpdir/state/shinigami-ai-agent-update.log ]] \
+  || fail "agents update owner did not run"
+grep -Fx -- '--except fireworks' "$tmpdir/state/shinigami-ai-agent-update.log" >/dev/null \
+  || fail "agents owner did not exclude the disabled collector"
+grep -Fx -- '--force --except fireworks' \
+  "$tmpdir/state/shinigami-ai-agent-update.log" >/dev/null \
+  || fail "agents owner did not forward a forced refresh"
+
+wrapper="$repo_root/shinigami.ai/scripts/agents-update"
+cp "$tmpdir/omarchy/bin/omarchy-agent-usage-update" "$tmpdir/updater-original"
+printf '#!/usr/bin/env bash\nexec "$OMARCHY_PATH/bin/omarchy-agent-usage-claude"\n' >"$tmpdir/omarchy/bin/omarchy-agent-usage-update"
+printf '#!/usr/bin/env python3\nimport json,os\nprint(json.dumps([os.getpriority(os.PRIO_PROCESS,0), sorted(os.sched_getaffinity(0))]))\n' >"$tmpdir/omarchy/bin/omarchy-agent-usage-claude"
+python3 - "$wrapper" "$tmpdir" <<'PY'
+import json, os, subprocess, sys
+wrapper, root = sys.argv[1:]; allowed = sorted(os.sched_getaffinity(0)); env = os.environ | {"HOME": root + "/home", "XDG_STATE_HOME": root + "/state"}
+for cpus in [allowed, allowed[-2:]]:
+    actual = json.loads(subprocess.check_output(["taskset", "-c", ",".join(map(str, cpus)), wrapper, root + "/omarchy", "claude"], env=env, text=True).splitlines()[-1])
+    assert actual == [19 if len(cpus) > 2 else os.getpriority(os.PRIO_PROCESS, 0), cpus[-max(2, len(cpus) // 4):] if len(cpus) > 2 else cpus], actual
+PY
+mv "$tmpdir/updater-original" "$tmpdir/omarchy/bin/omarchy-agent-usage-update"
+install -m 0755 /usr/bin/true "$tmpdir/omarchy/bin/omarchy-agent-usage-claude"
+SHINIGAMI_TEST_STUBBORN=1 SHINIGAMI_AI_UPDATE_TIMEOUT=30 \
+  HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+  "$wrapper" "$tmpdir/omarchy" claude >/dev/null 2>&1 &
+lifecycle_wrapper=$!
+for _ in {1..100}; do
+  [[ -s $tmpdir/state/shinigami-ai-agent-processes ]] && break
+  kill -0 "$lifecycle_wrapper" 2>/dev/null \
+    || fail "agents lifecycle wrapper exited before its child registered"
+  sleep 0.05
+done
+[[ -s $tmpdir/state/shinigami-ai-agent-processes ]] \
+  || fail "agents lifecycle child did not register"
+read -r lifecycle_group lifecycle_descendant \
+  <"$tmpdir/state/shinigami-ai-agent-processes"
+kill -TERM "$lifecycle_wrapper"
+for _ in {1..100}; do
+  kill -0 "$lifecycle_wrapper" 2>/dev/null || break
+  sleep 0.05
+done
+if kill -0 "$lifecycle_wrapper" 2>/dev/null; then
+  fail "agents lifecycle wrapper ignored teardown"
+fi
+wait "$lifecycle_wrapper" 2>/dev/null || true
+lifecycle_wrapper=""
+if kill -0 -- "-$lifecycle_group" 2>/dev/null \
+    || kill -0 "$lifecycle_descendant" 2>/dev/null; then
+  fail "agents collector process group survived teardown"
+fi
+lifecycle_group=""
+
+rm -f -- "$tmpdir/state/shinigami-ai-agent-processes"
+SHINIGAMI_TEST_STUBBORN=1 SHINIGAMI_AI_UPDATE_TIMEOUT=30 \
+  HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+  "$wrapper" "$tmpdir/omarchy" claude >/dev/null 2>&1 &
+lifecycle_wrapper=$!
+for _ in {1..100}; do
+  [[ -s $tmpdir/state/shinigami-ai-agent-processes ]] && break
+  kill -0 "$lifecycle_wrapper" 2>/dev/null \
+    || fail "agents abrupt-cleanup wrapper exited before registration"
+  sleep 0.05
+done
+[[ -s $tmpdir/state/shinigami-ai-agent-processes ]] \
+  || fail "agents abrupt-cleanup child did not register"
+read -r lifecycle_group lifecycle_descendant \
+  <"$tmpdir/state/shinigami-ai-agent-processes"
+kill -KILL "$lifecycle_wrapper"
+wait "$lifecycle_wrapper" 2>/dev/null || true
+lifecycle_wrapper=""
+for _ in {1..100}; do
+  if ! kill -0 -- "-$lifecycle_group" 2>/dev/null \
+      && ! kill -0 "$lifecycle_descendant" 2>/dev/null; then
+    break
+  fi
+  sleep 0.05
+done
+if kill -0 -- "-$lifecycle_group" 2>/dev/null \
+    || kill -0 "$lifecycle_descendant" 2>/dev/null; then
+  fail "agents collector process group survived abrupt wrapper death"
+fi
+lifecycle_group=""
+
+rm -f -- "$tmpdir/state/shinigami-ai-agent-processes"
+set +e
+SHINIGAMI_TEST_STUBBORN=1 SHINIGAMI_AI_UPDATE_TIMEOUT=1 \
+  HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+  timeout 30 "$wrapper" "$tmpdir/omarchy" codex >/dev/null 2>&1
+watchdog_rc=$?
+set -e
+[[ $watchdog_rc -ne 0 && $watchdog_rc -ne 124 ]] \
+  || fail "agents update watchdog did not enforce its own deadline (rc=$watchdog_rc)"
+[[ -s $tmpdir/state/shinigami-ai-agent-processes ]] \
+  || fail "agents watchdog child did not register"
+read -r lifecycle_group lifecycle_descendant \
+  <"$tmpdir/state/shinigami-ai-agent-processes"
+if kill -0 -- "-$lifecycle_group" 2>/dev/null \
+    || kill -0 "$lifecycle_descendant" 2>/dev/null; then
+  fail "agents collector process group survived watchdog cleanup"
+fi
+lifecycle_group=""
+
+missing_backend_root="$tmpdir/missing-backend-omarchy"
+mkdir -p "$missing_backend_root/bin"
+set +e
+HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+  "$wrapper" "$missing_backend_root" --probe-only >/dev/null 2>&1
+missing_backend_rc=$?
+set -e
+[[ $missing_backend_rc -eq 66 ]] \
+  || fail "missing current agents backend did not select the legacy fallback status"
+
+missing_root="$tmpdir/missing-collector-omarchy"
+mkdir -p "$missing_root/bin"
+install -m 0755 "$tmpdir/omarchy/bin/omarchy-agent-usage-update" \
+  "$missing_root/bin/omarchy-agent-usage-update"
+set +e
+HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+  "$wrapper" "$missing_root" claude >/dev/null 2>&1
+missing_collector_rc=$?
+set -e
+[[ $missing_collector_rc -ne 0 ]] \
+  || fail "missing requested agent collector was accepted"
+
+compat_root="$tmpdir/compat-omarchy"
+compat_real_bin="$tmpdir/home/.local/bin"
+compat_base_bin="$tmpdir/compat-base-bin"
+compat_log="$tmpdir/state/codex-compat-args"
+mkdir -p "$compat_root/bin" "$compat_real_bin" "$compat_base_bin"
+for utility in bash dirname env setsid sleep; do
+  ln -s "$(command -v "$utility")" "$compat_base_bin/$utility"
+done
+cat >"$compat_root/bin/omarchy-agent-usage-update" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+env codex -a untrusted exec
+env codex -s read-only -a untrusted app-server
+EOF
+install -m 0755 /usr/bin/true \
+  "$compat_root/bin/omarchy-agent-usage-codex"
+cat >"$compat_real_bin/codex" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"${XDG_STATE_HOME:?}/codex-compat-args"
+EOF
+chmod 0755 "$compat_root/bin/omarchy-agent-usage-update" \
+  "$compat_real_bin/codex"
+run_codex_compat_case() {
+  local label=$1
+  shift
+  : >"$compat_log"
+  PATH="$compat_base_bin" \
+    HOME="$tmpdir/home" XDG_STATE_HOME="$tmpdir/state" \
+    "$wrapper" "$compat_root" "$@" >/dev/null
+  [[ $(wc -l <"$compat_log") -eq 2 ]] \
+    || fail "Codex compatibility shim changed the $label invocation count"
+  grep -Fx -- '-a untrusted exec' "$compat_log" >/dev/null \
+    || fail "Codex compatibility shim changed a non-app-server $label invocation"
+  grep -Fx -- '-s read-only -a never app-server' "$compat_log" >/dev/null \
+    || fail "Codex compatibility shim did not translate the $label policy"
+}
+# shellcheck disable=SC2329 # Exported to prove PATH-only lookup ignores it.
+codex() { return 97; }
+export -f codex
+run_codex_compat_case explicit codex
+run_codex_compat_case all-agents
+run_codex_compat_case forced-all --force
+unset -f codex
+
+widget="$repo_root/shinigami.ai/BarWidget.qml"
+service="$repo_root/shinigami.ai/Service.qml"
+rg -q 'serviceFor\("shinigami\.ai"\)' "$widget" \
+  || fail "AI widget does not resolve the shared service"
+rg -q 'serviceFor\("shinigami\.state"\)' "$service" \
+  || fail "AI service does not resolve the state owner"
+rg -q 'stateService\.setWidgetSetting' "$service" \
+  || fail "AI provider selection bypasses the state owner"
+if rg -q 'bar\.(aiUsageService|setWidgetSetting)' \
+    "$repo_root/shinigami.ai" --glob '*.qml'; then
+  fail "AI plugin consumes transitional bar-owned feature state"
+fi
+rg -Uq 'readonly property bool agentsBackendActive: !agentsBackendUnavailable(.|\n)*omarchyPath' \
+  "$service" \
+  || fail "AI service still requires an unavailable host-registry traversal"
+rg -q 'Number\(exitCode\) === 66' "$service" \
+  || fail "AI service does not fall back when the current agents backend is absent"
+rg -q 'registeredWidgetSource\("omarchy\.model-usage"\)' "$service" \
+  || fail "AI service does not retain the pinned model-usage fallback"
+rg -q 'AgentUsageModel\.parseRecord' "$service" \
+  || fail "AI service does not normalize primitive agents records"
+rg -q 'providerCurrentDataMessage' "$service" \
+  || fail "AI service does not expose the ready-without-current-data state"
+rg -q 'onTriggered: root\.expireAgentRecords\(Date\.now\(\)\)' "$service" \
+  || fail "AI service does not expire already loaded stale agent records"
+if rg -q 'source:.*agents/(Main|Panel)\.qml|setSource\([^\n]*agents' "$service"; then
+  fail "AI service embeds the host agents presentation"
+fi
+rg -q 'providerReportsFiveHour' "$service" \
+  || fail "AI tooltip lost dynamic Codex 5h reporting"
+rg -q 'displayPercent' "$service" \
+  || fail "AI service lost provider percentage normalization"
+panel="$repo_root/shinigami.ai/AiUsagePanel.qml"
+rg -Fq 'text: panel.provider ? panel.providerHeading(panel.provider)' "$panel" \
+  || fail "AI panel lost the selected-provider heading"
+rg -q 'font\.pixelSize: Commons\.Style\.font\.subtitle' "$panel" \
+  || fail "AI panel heading does not retain the V1 13px role"
+rg -q 'color: selected \? panel\.controlActiveFillColor' "$panel" \
+  || fail "AI provider tabs bypass shared V1 active tokens"
+rg -q 'component ModelUsageRow: Item' "$panel" \
+  || fail "AI panel lost OpenCode model rows"
+rg -q 'providerEmptyStateText' "$panel" \
+  || fail "AI panel does not render the provider no-current-data/auth state"
+rg -q 'implicitWidth: Commons\.Style\.space\(28\)' "$panel" \
+  || fail "AI header actions lost NetworkPanel geometry"
+rg -q 'Presentation\.ShinigamiPillToolTip' "$panel" \
+  || fail "AI header actions lost panel-local tooltips"
+rg -q 'renderType: Text\.NativeRendering' "$panel" \
+  || fail "AI panel text does not request native rendering"
+if rg -q 'rgba\([^\n]*urgent[^\n]*0\.22' "$panel"; then
+  fail "AI panel reintroduced an ad-hoc active fill"
+fi
+if rg -q 'Process \{|FileView \{' "$widget" "$panel" \
+    || rg -q 'Timer \{' "$widget"; then
+  fail "AI screen-local views own provider workers"
+fi
+[[ $(rg -c 'Timer \{' "$panel") -eq 1 ]] && grep -Fq 'interval: 30000; repeat: true; running: panel.open' "$panel" \
+  || fail "AI panel clock must be singular, bounded and open-only"
+[[ $(rg -c 'Process \{' "$service") -eq 2 ]] \
+  || fail "AI providers need one updater and one directory discovery owner"
+[[ $(rg -c 'FileView \{' "$service") -eq 1 ]] \
+  || fail "AI agents records need one reader delegate per discovered id"
+rg -q 'running: root\.runtimeProbesEnabled' "$service" \
+  || fail "AI polling cannot be disabled for lifecycle validation"
+rg -q 'Component\.onDestruction:' "$service" \
+  || fail "AI process owner does not define teardown cleanup"
+rg -Uq 'Component\.onDestruction: \{(.|\n)*stopScanner\(\)(.|\n)*\}' \
+  "$repo_root/shinigami.ai/OpenCodeProvider.qml" \
+  || fail "OpenCode scanner does not stop on teardown"
+if ! rg -q 'readonly property bool serviceActive:' "$service" \
+    || ! rg -q 'stateService\.groupEnabled\("G7"\)' "$service"; then
+  fail "AI provider lifecycle is not gated by G7 activation"
+fi
+if rg -q 'CACHE_FILE|stale_last' "$repo_root/shinigami.ai/scripts/opencode-usage"; then
+  fail "OpenCode provider persists a usage cache"
+fi
+rg -Fq 'Qt.resolvedUrl("scripts/opencode-usage")' \
+  "$repo_root/shinigami.ai/OpenCodeProvider.qml" \
+  || fail "OpenCode provider does not resolve its shipped scanner"
+rg -q 'con\.execute\("begin"\)' \
+  "$repo_root/shinigami.ai/scripts/opencode-usage" \
+  || fail "OpenCode aggregates do not share one SQLite read snapshot"
+rg -q 'handleLocalMidnight' \
+  "$repo_root/shinigami.ai/OpenCodeProvider.qml" \
+  || fail "OpenCode provider does not invalidate today at local midnight"
+rg -q 'clearScannerData\(\)' \
+  "$repo_root/shinigami.ai/OpenCodeProvider.qml" \
+  || fail "OpenCode provider does not clear stale data on scanner failure"
+rg -q 'model_rows\(messages, today_ms, tomorrow_ms\)' \
+  "$repo_root/shinigami.ai/scripts/opencode-usage" \
+  || fail "OpenCode model rows are not scoped to today"
+rg -q 'newest_model\(messages, today_ms, tomorrow_ms\)' \
+  "$repo_root/shinigami.ai/scripts/opencode-usage" \
+  || fail "OpenCode latest model does not share the today scope"
+[[ -x $repo_root/shinigami.ai/scripts/opencode-usage \
+  && -x $repo_root/shinigami.ai/scripts/agents-update \
+  && -x $repo_root/shinigami.ai/scripts/compat-bin/codex ]] \
+  || fail "AI provider scripts are not executable"
+[[ -s $repo_root/shinigami.ai/assets/codex.svg \
+  && -s $repo_root/shinigami.ai/assets/opencode-mark.svg ]] \
+  || fail "AI provider assets are missing"
+
+printf 'AI plugin regression passed\n'

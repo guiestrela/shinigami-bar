@@ -1,0 +1,667 @@
+import QtQuick
+import Quickshell.Io
+import qs.Ui as Ui
+import "core/LayoutModel.js" as V1Layout
+import "core/V2LayoutModel.js" as Layout
+import "../shinigami.state/runtime" as Shared
+Bar {
+  id: probe
+  outputWindowsEnabled: false
+  nativeRegistryPrimeEnabled: true
+  property var controlWidget: null
+  property var transitionTarget: null
+  property var capturedCatalogObservation: null
+  property var capacityBaseline: null
+  QtObject { id: duplicateBarOwner }
+  QtObject {
+    id: incompleteState
+    property var source: null
+    property var config: ({})
+    property bool ready: true
+    property bool writePending: false
+    property int writeSerial: 0
+    property int calls: 0
+    signal persistenceSettled(int serial, string result)
+    function same(a, b) { return source.same(a, b) }
+    function normalizedLayoutFamilyPatch(value) { return source.normalizedLayoutFamilyPatch(value) }
+    function layoutFamilySnapshot(value) { return source.layoutFamilySnapshot(value) }
+    function setLayoutFamilyTransition(value) { calls++; return true }
+    function setV2Layout(value) { calls++; return true }
+    function resetV2Layout() { calls++; return true }
+    // Deliberately missing compensation: scoped hosts must reject, not fall
+    // back to the legacy chain. No method calls through to a native writer.
+  }
+  QtObject {
+    id: controlSlot
+    property string moduleName: "shinigami.control-center"
+    property string screenName: ""
+    property var activeItem: probe.controlWidget
+    property bool visible: true
+  }
+  function controlObjectCount() {
+    let count = 0
+    for (let index = 0; index < children.length; index++)
+      if (children[index].objectName === "native-fixture-control-widget") count++
+    return count
+  }
+  function visibleItemWithText(owner, text, depth) {
+    if (!owner || depth > 12) return null
+    try {
+      if (owner.visible && "text" in owner
+          && String(owner.text) === text) return owner
+    } catch (error) { return null }
+    const values = owner.children || []
+    for (let index = 0; index < values.length; index++) {
+      const match = visibleItemWithText(values[index], text, depth + 1)
+      if (match) return match
+    }
+    return null
+  }
+  function visibleAccessibleAction(owner, name, depth) {
+    if (!owner || depth > 12) return null
+    try {
+      if (owner.visible && owner.width > 0 && owner.height > 0
+          && String(owner.Accessible.name || "") === name
+          && typeof owner.requested === "function") return owner
+    } catch (error) { return null }
+    const values = owner.children || []
+    for (let index = 0; index < values.length; index++) {
+      const match = visibleAccessibleAction(values[index], name, depth + 1)
+      if (match) return match
+    }
+    return null
+  }
+  Ui.PluginBarApi {
+    id: controlApi
+    pluginId: "shinigami.control-center"
+    moduleName: "shinigami.control-center"
+    foreground: "#eeeeee"
+    barForeground: foreground
+    background: "#181818"
+    urgent: "#88bbee"
+    fontFamily: "monospace"
+    barSize: 28
+    foregroundAnimationEnabled: false
+  }
+  IpcHandler {
+    target: "native-runtime-probe"
+    function status(): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const lease = Shared.Runtime._selected("shinigami.state")
+      const updates = Shared.Runtime.serviceFor("shinigami.control-center")
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const hasUnplacedPluginIds = !!page && "unplacedPluginIds" in page
+      const hasCapacityMessage = !!page && "capacityMessage" in page
+      return JSON.stringify({runtimeReady: Shared.Runtime.ready,
+        barRegistered: Shared.Runtime.isActiveBar(probe),
+        hostRegistryPrimePhase: Shared.Runtime.hostRegistryPrimePhase,
+        hostRegistryPrimeAttempts: Shared.Runtime.hostRegistryPrimeAttemptCount,
+        mutationAdmissionReady: probe.mutationAdmissionReady,
+        widgetRegistryMemoryReady: !!probe.barWidgetRegistry
+          && !!probe.barWidgetRegistry.widgets
+          && !!probe.barWidgetRegistry.widgets["shinigami.memory"]
+          && !!probe.barWidgetRegistry.widgets[
+            "shinigami.memory"].component,
+        hostReady: probe.hostReady, styleReady: probe.styleReady,
+        stateReady: !!state && state.ready,
+        stateSerial: lease ? lease.serial : 0,
+        stateObjectName: state ? state.objectName : "",
+        controlLoaded: !!probe.controlWidget,
+        controlObjectCount: probe.controlObjectCount(),
+        restoreCount: probe.pendingWidgetRestores.length,
+        restoreWaiting: probe.pendingWidgetRestores.some(record => record.waitingWrites && record.waitingWrites.length > 0),
+        stateWritePending: !!state && state.writePending,
+        layoutBusy: probe.layoutTransitionBusy,
+        layoutSerial: probe.layoutTransitionSerial,
+        layoutResult: probe.layoutTransitionResult,
+        v2Mode: probe.layoutController.v2Mode,
+        cpuV1Enabled: !!state && state.groupEnabledForVariant("G5", "v1"),
+        cpuV2Enabled: !!state && state.groupEnabledForVariant("G5", "v2"),
+        cpuV1Requested: !!state
+          && state.requestedGroupEnabledForVariant("G5", "v1"),
+        cpuV2Requested: !!state
+          && state.requestedGroupEnabledForVariant("G5", "v2"),
+        audioV1Enabled: !!state && state.groupEnabledForVariant("G6", "v1"),
+        audioV2Enabled: !!state && state.groupEnabledForVariant("G6", "v2"),
+        providerSnapshotBusy: probe.providerSnapshotTransitionBusy,
+        providerSnapshotSerial: probe.providerSnapshotTransitionSerial,
+        providerSnapshotResult: probe.providerSnapshotTransitionResult,
+        stateTransitionBusy: probe.stateTransitionBusy,
+        stateTransitionSerial: probe.stateTransitionSerial,
+        stateTransitionResult: probe.stateTransitionResult,
+        controlCatalogInstalled: panel && panel.settingsPageItem
+          && typeof panel.settingsPageItem.entryById === "function"
+          && panel.settingsPageItem.entryById("shinigami.control-center")
+          ? panel.settingsPageItem.entryById(
+              "shinigami.control-center").installedInBar : null,
+        pageTransitionPending: !!panel && !!panel.settingsPageItem
+          && panel.settingsPageItem.transitionPending,
+        pageFeedbackTitle: page ? page.feedbackTitle : "",
+        pageFeedbackDetail: page ? page.feedbackDetail : "",
+        pageFeedbackVisible: !!page && page.feedbackVisible,
+        unplacedPluginIdsPropertyExists: hasUnplacedPluginIds,
+        unplacedPluginIds: hasUnplacedPluginIds
+          && Array.isArray(page.unplacedPluginIds)
+          ? page.unplacedPluginIds.slice() : [],
+        capacityMessagePropertyExists: hasCapacityMessage,
+        capacityMessage: hasCapacityMessage
+          ? String(page.capacityMessage || "") : "",
+        pageUndoMode: panel && panel.settingsPageItem
+          ? panel.settingsPageItem.undoMode : "",
+        pageUndoSnapshot: panel && panel.settingsPageItem
+          ? panel.settingsPageItem.undoProviderSnapshot : null,
+        pageUndoSnapshotValid: !!panel && !!panel.settingsPageItem
+          && probe.validScopedProviderSnapshot(
+            panel.settingsPageItem.undoProviderSnapshot),
+        pageUndoLayoutCurrent: !!panel && !!panel.settingsPageItem
+          && !!panel.settingsPageItem.undoProviderSnapshot
+          && JSON.stringify(probe.observedLayoutSnapshot()) === JSON.stringify(
+            panel.settingsPageItem.undoProviderSnapshot.expectedLayout),
+        catalogReadSerial: updates ? updates.catalogReadSerial : 0,
+        catalogConsumerCount: updates ? updates.catalogConsumerCount : 0,
+        panelPage: panel ? panel.settingsPage : "",
+        panelPageReady: !!panel && panel.settingsPageReady,
+        panelCatalog: panel && panel.pluginCatalogSnapshot
+          ? panel.pluginCatalogSnapshot : null,
+        panelActionError: panel ? panel.pluginActionError : "",
+        injectedBar: probe.barConfig,
+        panelLoaded: !!panel,
+        panelStateMatches: !!panel && panel.stateService === state,
+        panelUpdatesMatch: !!panel && !!updates && panel.effectivePluginUpdateService === updates,
+        config: state ? state.config : null,
+        hostBar: probe.shell ? probe.shell.barConfig : null})
+    }
+    function scopedServiceRoster(): string {
+      const rows = []
+      for (const id of Shared.Runtime.providerIds) {
+        const owner = Shared.Runtime.serviceFor(id)
+        const lease = Shared.Runtime._selected(id)
+        rows.push({id: id, published: owner !== null,
+          exactOwner: !!owner && !!lease && lease.owner === owner,
+          manifestBound: !!owner && !!owner.manifest
+            && owner.manifest.id === id
+            && owner.manifest.version === Shared.Runtime.suiteVersion,
+          scopedHostBound: !!lease && !!lease.host && "pluginId" in lease.host
+            && lease.host.pluginId === id})
+      }
+      return JSON.stringify(rows)
+    }
+    function checkSynchronousScopeLoss(): string {
+      if (!probe.hostReady || !probe.mutationAdmissionReady) return "not-ready"
+      const initial = Shared.Runtime._selected("shinigami.bar")
+      if (!initial || initial.owner !== probe) return "not-ready"
+      const before = JSON.stringify(probe.shell.barConfig)
+      let duplicate = null
+      let refused = false
+      try {
+        duplicate = Shared.Runtime.refreshProvider(null,
+          "shinigami.bar", duplicateBarOwner, initial.host,
+          {id: "shinigami.bar", kinds: ["bar"],
+            version: Shared.Runtime.suiteVersion},
+          Shared.Runtime.suiteVersion)
+        refused = duplicate !== null
+          && Shared.Runtime._selected("shinigami.bar") === null
+          && !probe.suiteRuntimeReady
+          && !probe.startupAdmissionSatisfied
+          && !probe.mutationAdmissionReady
+          && !probe.setBarPosition(probe.position === "top" ? "bottom" : "top")
+          && JSON.stringify(probe.shell.barConfig) === before
+      } finally {
+        if (duplicate) Shared.Runtime.unregisterProvider(duplicate)
+      }
+      const restored = Shared.Runtime.isActiveBar(probe)
+        && probe.suiteRuntimeReady && probe.startupAdmissionSatisfied
+        && probe.mutationAdmissionReady
+      return refused && restored ? "scope-loss-refused" : "failed"
+    }
+    function checkIncompleteState(): string {
+      const original = probe.layoutController.stateService
+      incompleteState.source = original
+      incompleteState.config = Object.assign({}, original.config, {presentation: {shellStyle: "full"}})
+      incompleteState.calls = 0
+      probe.layoutController.stateService = incompleteState
+      const refused = !probe.layoutTransitionsSupported && !probe.legacyFamilyMutationAllowed()
+        && !probe.layoutController.persistV2Layout(Layout.defaultLayout())
+        && !probe.layoutController.reconcileV2PluginGroups([], true, false)
+        && !probe.layoutController.resetV2Layout()
+        && !probe.setBarWidgetInstalled("shinigami.control-center", false, "left")
+        && incompleteState.calls === 0
+      probe.layoutController.stateService = original
+      return refused ? "scoped-incomplete-no-writes" : "failed"
+    }
+    function prepareTransition(): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!state || !state.ready || state.writePending || probe.layoutTransitionBusy) return "not-ready"
+      const initial = Layout.defaultLayout(); initial.left.push("G:fixture.layout-probe")
+      const target = JSON.parse(JSON.stringify(initial)); target.left.pop()
+      target.right[target.right.length - 1] = "G:fixture.layout-probe"
+      probe.transitionTarget = target
+      // A constructed, unregistered entry stays empty. No foreign manifest or
+      // original-component fallback is supplied by this fixture.
+      probe.shell.mutateShellConfig(function(config) {
+        config.bar.layout.left.push({id: "fixture.layout-probe", opaque: {deep: [17]}})
+      })
+      return state.setLayoutFamilyTransition({v2Layout: initial}) ? "queued" : "failed"
+    }
+    function reconcileFixture(region: string): bool {
+      const specs = probe.activePluginSpecs().map(spec =>
+        spec.pluginId === "fixture.native-widget" ? Object.assign({}, spec, {region: region}) : spec)
+      return probe.layoutController.reconcileV2PluginGroups(specs, true, true, true)
+    }
+    function runTransition(): string {
+      const before = JSON.stringify(probe.barConfig)
+      const accepted = probe.layoutController.persistV2Layout(probe.transitionTarget)
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return accepted && state.writePending && probe.layoutTransitionBusy
+        && JSON.stringify(probe.barConfig) === before ? "queued-without-native-mutation" : "failed"
+    }
+    function rememberState(value: string): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!state) return "not-ready"
+      state.objectName = value
+      return "ok"
+    }
+    function openControl(): string {
+      const entry = probe.barWidgetRegistry.widgets["shinigami.control-center"]
+      const component = probe.hostWidgetResolver.ensureComponent("shinigami.control-center")
+      if (!entry || !component || component !== entry.component
+          || component.status !== Component.Ready) return "not-ready"
+      if (!probe.controlWidget) {
+        // The native factory mutates its cache; don't invoke it in a binding.
+        controlApi.shell = probe.shell.pluginShellForBarEntry(
+          "shinigami.bar", "shinigami.control-center")
+        if (!controlApi.shell) return "not-ready"
+        probe.controlWidget = component.createObject(probe,
+          {bar: controlApi, objectName: "native-fixture-control-widget"})
+      }
+      if (!probe.controlWidget) return "not-ready"
+      probe.controlWidget.open()
+      return "ok"
+    }
+    function openPlugins(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      return panel && panel.showSettingsPage("plugins") ? "ok" : "not-ready"
+    }
+    function openIcons(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      return panel && panel.showSettingsPage("functions") ? "ok" : "not-ready"
+    }
+    function setCpuVisible(enabled: bool): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const variant = probe.layoutController.v2Mode ? "v2" : "v1"
+      return state && state.setGroupEnabledForVariant("G5", variant, enabled)
+        ? "queued" : "not-ready"
+    }
+    function activateCpuFromIcons(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const variant = probe.layoutController.v2Mode ? "v2" : "v1"
+      const section = probe.visibleItemWithText(
+        page, "INACTIVE WIDGETS", 0)
+      const action = probe.visibleAccessibleAction(page, "Activate CPU", 0)
+      const beforeConfig = state ? JSON.stringify(state.config) : ""
+      const beforeBar = JSON.stringify(probe.barConfig)
+      if (!section || !action) return "visible-action-missing"
+      action.requested()
+      return state && !probe.stateTransitionBusy
+          && !probe.layoutTransitionBusy
+          && !probe.providerSnapshotTransitionBusy && state.writePending
+          && state.requestedGroupEnabledForVariant("G5", variant)
+          && JSON.stringify(state.config) === beforeConfig
+          && JSON.stringify(probe.barConfig) === beforeBar
+        ? "queued-without-native-mutation" : "failed"
+    }
+    function coalesceCpuFromIcons(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const variant = probe.layoutController.v2Mode ? "v2" : "v1"
+      const action = probe.visibleAccessibleAction(page, "Activate CPU", 0)
+      const beforeConfig = state ? JSON.stringify(state.config) : ""
+      const beforeBar = JSON.stringify(probe.barConfig)
+      const beforeSerial = state ? state.writeSerial : 0
+      if (!panel || !action || !state) return "visible-action-missing"
+      action.requested()
+      const firstPreview = state.requestedGroupEnabledForVariant(
+        "G5", variant)
+      const secondAccepted = panel.setPluginEnabled(
+        "shinigami.cpu", false, true)
+      return firstPreview && secondAccepted && state.writePending
+          && state.writeSerial === beforeSerial + 2
+          && !state.requestedGroupEnabledForVariant("G5", variant)
+          && !probe.stateTransitionBusy && !probe.layoutTransitionBusy
+          && !probe.providerSnapshotTransitionBusy
+          && JSON.stringify(state.config) === beforeConfig
+          && JSON.stringify(probe.barConfig) === beforeBar
+        ? "coalesced-without-native-mutation" : "failed"
+    }
+    function malformedCatalogObservationsRefused(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!panel || !state || !panel.pluginCatalogObservation
+          || !panel.validPluginCatalogObservation(
+            panel.pluginCatalogObservation)) return "not-ready"
+      const beforeConfig = JSON.stringify(state.config)
+      const beforeBar = JSON.stringify(probe.barConfig)
+      const validRow = Object.freeze({
+        id: "fixture.valid", kinds: Object.freeze(["bar-widget"]),
+        enabled: false, barWidget: Object.freeze({})
+      })
+      const plainById = Object.freeze({"fixture.valid": validRow})
+      const nullByIdValue = Object.create(null)
+      nullByIdValue[validRow.id] = Object.freeze({
+        id: validRow.id, kinds: validRow.kinds,
+        enabled: validRow.enabled, barWidget: validRow.barWidget
+      })
+      const mismatchedById = Object.freeze(nullByIdValue)
+      const invalidIdRow = Object.freeze({
+        id: "fixture..invalid", kinds: Object.freeze(["bar-widget"]),
+        enabled: false, barWidget: Object.freeze({})
+      })
+      const invalidIdMapValue = Object.create(null)
+      invalidIdMapValue[invalidIdRow.id] = invalidIdRow
+      const observations = [
+        {serial: 1, generation: 1, snapshot: {}},
+        Object.freeze({serial: 1, generation: 1,
+          snapshot: Object.freeze({catalogKind: "native-listPlugins",
+            entries: Object.freeze([validRow]), byId: plainById})}),
+        Object.freeze({serial: 1, generation: 1,
+          snapshot: Object.freeze({catalogKind: "native-listPlugins",
+            entries: Object.freeze([validRow]), byId: mismatchedById})}),
+        Object.freeze({serial: 1, generation: 1,
+          snapshot: Object.freeze({catalogKind: "native-listPlugins",
+            entries: Object.freeze([invalidIdRow]),
+            byId: Object.freeze(invalidIdMapValue)})})
+      ]
+      const refused = observations.every(function(observation) {
+        return !panel.validPluginCatalogObservation(observation)
+      })
+      return refused && JSON.stringify(state.config) === beforeConfig
+          && JSON.stringify(probe.barConfig) === beforeBar
+          && !state.writePending && !probe.stateTransitionBusy
+          && !probe.layoutTransitionBusy
+        ? "malformed-no-mutation" : "failed"
+    }
+    function releaseBarCatalogAndRefuseCpu(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!panel || !page || !state || !probe.releaseCatalogConsumer())
+        return "not-ready"
+      const beforeConfig = JSON.stringify(state.config)
+      const beforeBar = JSON.stringify(probe.barConfig)
+      const accepted = page.setWidgetEnabled("G5", true)
+      return !accepted && !state.writePending && !probe.stateTransitionBusy
+          && !probe.layoutTransitionBusy
+          && JSON.stringify(state.config) === beforeConfig
+          && JSON.stringify(probe.barConfig) === beforeBar
+          && panel.pluginActionError === "The plugin catalog is not ready."
+          && panel.pluginCatalogObservation === null
+        ? "catalog-not-ready-no-mutation" : "failed"
+    }
+    function rebindBarCatalog(): string {
+      return probe.rebindCatalogConsumer() ? "requested" : "refused"
+    }
+    function releasePluginPageCatalogAndRefuseCpu(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!panel || !page || !state
+          || typeof page.releaseCatalogConsumer !== "function"
+          || !page.releaseCatalogConsumer()) return "not-ready"
+      const beforeConfig = JSON.stringify(state.config)
+      const beforeBar = JSON.stringify(probe.barConfig)
+      const accepted = panel.setPluginEnabled("shinigami.cpu", false)
+      const refused = !accepted && !state.writePending
+        && !probe.stateTransitionBusy && !probe.layoutTransitionBusy
+        && JSON.stringify(state.config) === beforeConfig
+        && JSON.stringify(probe.barConfig) === beforeBar
+        && panel.pluginActionError === "The plugin catalog is not ready."
+        && panel.pluginCatalogObservation === null
+        && probe.catalogObservation !== null
+      page.syncCatalogConsumer()
+      return refused ? "page-authoritative-no-fallback" : "failed"
+    }
+    function captureCatalog(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      probe.capturedCatalogObservation = page ? page.catalogObservation : null
+      return probe.capturedCatalogObservation ? "captured" : "not-ready"
+    }
+    function staleCatalogToggle(): string {
+      const before = JSON.stringify(probe.barConfig)
+      const accepted = probe.requestCatalogLayoutTransition(
+        "fixture.native-widget", true, "left", probe.capturedCatalogObservation)
+      return !accepted && JSON.stringify(probe.barConfig) === before
+        && !probe.layoutTransitionBusy ? "stale-refused" : "failed"
+    }
+    function catalogDefaultCannotAuthorize(): string {
+      // A valid-looking section for a catalog-only service must not fabricate
+      // the host component authority needed for activation.
+      const request = probe.catalogTransitionIntent(
+        "fixture.catalog-service", true, "left")
+      return !request && !probe.canSetBarWidgetInstalled(
+        "fixture.catalog-service", true) ? "refused" : "failed"
+    }
+    function toggleCatalogWidget(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const before = JSON.stringify(probe.barConfig)
+      const accepted = page && page.togglePluginById("fixture.native-widget")
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (accepted && state && probe.layoutTransitionBusy
+          && JSON.stringify(probe.barConfig) === before
+          && page.transitionPending
+          && page.feedbackTitle.indexOf("Updating") === 0
+          && page.undoMode === "")
+        return "queued-without-native-mutation"
+      return "failed:" + JSON.stringify({accepted: accepted,
+        state: !!state, pending: !!state && state.writePending,
+        busy: probe.layoutTransitionBusy,
+        layoutResult: probe.layoutTransitionResult,
+        unchanged: JSON.stringify(probe.barConfig) === before,
+        canSet: probe.canSetBarWidgetInstalled("fixture.native-widget", true),
+        pageEntry: page ? page.entryById("fixture.native-widget") : null})
+    }
+    function expirePageFeedback(): bool {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      if (!page || typeof page.expireFeedback !== "function") return false
+      page.expireFeedback()
+      return page.feedbackVisible === false
+    }
+    function removeCapacityWidget(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const pageEntry = page && typeof page.entryById === "function"
+        ? page.entryById("fixture.native-widget") : null
+      const snapshot = panel ? panel.pluginCatalogSnapshot : null
+      const catalogEntry = snapshot && snapshot.byId
+        ? snapshot.byId["fixture.native-widget"] : null
+      const before = JSON.stringify(probe.barConfig)
+      const beforeSerial = probe.layoutTransitionSerial
+      const accepted = panel
+        && panel.setPluginEnabled("fixture.native-widget", false)
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return JSON.stringify({
+        accepted: accepted === true,
+        pageEntryPresent: pageEntry !== null,
+        actualPageEntryInstalledInBarBefore: pageEntry
+          ? pageEntry.installedInBar === true : null,
+        catalogEnabledBefore: catalogEntry ? catalogEntry.enabled === true : null,
+        stateWritePending: !!state && state.writePending,
+        layoutBusy: probe.layoutTransitionBusy,
+        layoutSerialAdvanced:
+          probe.layoutTransitionSerial === beforeSerial + 1,
+        nativeUnchangedBeforeSettlement:
+          JSON.stringify(probe.barConfig) === before
+      })
+    }
+    function setControlGroupVisible(enabled: bool): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return state && state.setGroupEnabledForVariant("G1", "v1", enabled)
+        ? "queued" : "not-ready"
+    }
+    function toggleFixedControlGroup(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const entry = page ? page.entryById("shinigami.control-center") : null
+      const before = JSON.stringify(probe.barConfig)
+      const accepted = entry && entry.enabled === true
+        && entry.installedInBar === false && page.togglePlugin(entry)
+      return accepted && probe.stateTransitionBusy && !probe.layoutTransitionBusy
+          && page.transitionPending && page.undoMode === ""
+          && JSON.stringify(probe.barConfig) === before
+        ? "queued-without-native-mutation" : "failed"
+    }
+    function undoFixedControlGroup(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      return page && page.undoLastChange() && page.transitionPending
+          && probe.stateTransitionBusy ? "queued" : "failed"
+    }
+    function toggleAudioProvider(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const before = JSON.stringify(probe.barConfig)
+      const accepted = page && page.togglePluginById("fixture.audio-provider")
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return accepted && state && probe.layoutTransitionBusy
+          && JSON.stringify(probe.barConfig) === before
+          && page.transitionPending && page.undoMode === ""
+        ? "queued-without-native-mutation" : "failed"
+    }
+    function restoreShinigamiAudio(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      const entry = page ? page.entryById("shinigami.audio") : null
+      const accepted = entry && entry.replaced === true
+        && page.togglePlugin(entry)
+      return accepted && page.transitionPending && probe.layoutTransitionBusy
+        ? "queued" : "failed"
+    }
+    function activePluginRemovalRefused(pluginId: string): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      if (!panel) return "not-ready"
+      const accepted = panel.removePlugin(pluginId)
+      return !accepted && !panel.pluginRemovalRunning
+          && (panel.pluginActionError.indexOf("Deactivate") === 0
+            || panel.pluginActionError.indexOf("Wait for") === 0)
+        ? "refused-before-process" : "failed"
+    }
+    function undoPluginChange(): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      const page = panel ? panel.settingsPageItem : null
+      if (!page) return "not-ready"
+      const accepted = page.undoLastChange()
+      if (accepted && page.transitionPending
+          && probe.providerSnapshotTransitionBusy)
+        return "queued"
+      return !accepted && !page.transitionPending
+          && page.undoMode === "provider-snapshot"
+          && page.feedbackTitle === "Undo could not be completed"
+        ? "refused-retained" : "failed"
+    }
+    function setShellStyle(value: string): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return state && state.setPresentationSetting("shellStyle", value)
+        ? "queued" : "not-ready"
+    }
+    function prepareFullV1Capacity(): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!state || !state.ready || state.writePending
+          || probe.layoutTransitionBusy || probe.layoutController.v2Mode)
+        return "not-ready"
+      const order = V1Layout.copyOrder(state.config.order)
+      const splits = V1Layout.copySplits(state.config.splits, order)
+      if (!order || !splits) return "invalid-baseline"
+      const target = {
+        left: ["", "", "G3", "G4", "G5", "G6", "G7", "G1", "G2"],
+        center: ["", "G8"],
+        right: ["", "", "G11", "G14", "G12", "G13", "G15", "G9", "G10"]
+      }
+      const targetSplits = V1Layout.resizeSplits(splits, target)
+      if (!targetSplits) return "invalid-target"
+      probe.capacityBaseline = {order: order, splits: splits}
+      return state.setLayout(target, targetSplits) ? "queued" : "refused"
+    }
+    function freeFullV1Slot(): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const order = state ? V1Layout.copyOrder(state.config.order) : null
+      if (!state || state.writePending || probe.layoutTransitionBusy
+          || probe.layoutController.v2Mode || !order
+          || order.left[0] !== "G:fixture.native-widget" || order.left[7] !== "G1")
+        return "not-ready"
+      return probe.layoutController.moveGroupToSlot("G1", "left", 0)
+        ? "queued" : "refused"
+    }
+    function restoreCapacityBaseline(): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      const baseline = probe.capacityBaseline
+      if (!state || state.writePending || probe.layoutTransitionBusy
+          || probe.layoutController.v2Mode || !baseline)
+        return "not-ready"
+      return state.setLayout(baseline.order, baseline.splits)
+        ? "queued" : "refused"
+    }
+    function setUndoConflict(enabled: bool): string {
+      if (probe.layoutTransitionBusy || probe.providerSnapshotTransitionBusy)
+        return "busy"
+      const target = enabled === true
+      probe.shell.mutateShellConfig(function(config) {
+        const entries = config.bar.layout.left
+        for (let index = 0; index < entries.length; index++) {
+          const id = String(entries[index] && entries[index].id || entries[index] || "")
+          if (id !== "shinigami.control-center") continue
+          entries[index] = target
+            ? {id: id, fixtureConcurrent: {opaque: [31]}} : id
+          break
+        }
+      })
+      return "queued"
+    }
+    function closeControl(): string {
+      probe.unregisterModuleSlot(controlSlot)
+      if (probe.controlWidget) {
+        probe.controlWidget.close()
+        probe.controlWidget.destroy()
+        probe.controlWidget = null
+      }
+      return "ok"
+    }
+    function panelSetting(value: bool): string {
+      const panel = probe.controlWidget ? probe.controlWidget.panelItem : null
+      return panel && panel.setGroupSetting("G4", "compact", value) ? "queued" : "not-ready"
+    }
+    function panelSettingWithRestore(value: bool): string {
+      if (!probe.controlWidget || !probe.controlWidget.panelItem) return "not-ready"
+      // Use the same visual Bar injection as production WidgetSlot, after the
+      // narrower native PluginBarApi route above has also been exercised.
+      probe.controlWidget.bar = probe
+      probe.registerModuleSlot(controlSlot)
+      const panel = probe.controlWidget.panelItem
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      if (!panel || !state || !panel.setGroupSetting("G4", "compact", value)) return "not-ready"
+      const records = probe.pendingWidgetRestores
+      return state.writePending && records.length === 1
+        && records[0].waitingWrites.length === 1 ? "queued-awaiting-settlement" : "restore-not-held"
+    }
+    function revokeBarDuringRestore(value: bool): string {
+      if (panelSettingWithRestore(value) !== "queued-awaiting-settlement") return "not-held"
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      probe.scheduleWidgetRestore("fixture.other", "", false, null, "fixture-output")
+      const original = probe.manifest
+      probe.manifest = Object.assign({}, original, {version: "0.0.0"})
+      const revoked = !Shared.Runtime.isActiveBar(probe) && state && state.ready
+        && probe.pendingWidgetRestores.length === 0
+      probe.manifest = original
+      return revoked && probe.pendingWidgetRestores.length === 0 ? "revoked-with-ready-state" : "restore-not-revoked"
+    }
+    function compact(value: bool): string {
+      const state = Shared.Runtime.serviceFor("shinigami.state")
+      return state && state.setGroupSetting("G4", "compact", value) ? "queued" : "not-ready"
+    }
+  }
+}

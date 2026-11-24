@@ -1,0 +1,490 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "hancore.shinigami",
+  "suiteVersion": "0.2.5",
+  "settingsStorageVersion": 1,
+  "hostContract": "contracts/host-facade-v1.json",
+  "retiredPlugins": [
+    "shinigami.menu",
+    "shinigami.brightness"
+  ],
+  "plugins": [
+    {
+      "id": "shinigami.bar",
+      "kinds": [
+        "bar"
+      ],
+      "role": "bar-host",
+      "bundle": "core",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [
+        "shinigami.reactor"
+      ]
+    },
+    {
+      "id": "shinigami.state",
+      "kinds": [
+        "service"
+      ],
+      "role": "state",
+      "bundle": "core",
+      "requires": [],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.control-center",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G1",
+      "bundle": "core",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.reactor",
+      "kinds": [
+        "service"
+      ],
+      "role": "reactor",
+      "bundle": "core",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [
+        "shinigami.workspaces",
+        "shinigami.status",
+        "shinigami.power-state",
+        "shinigami.ai",
+        "shinigami.network",
+        "shinigami.audio",
+        "shinigami.update-center"
+      ],
+      "hostContracts": [
+        "omarchy.media"
+      ]
+    },
+    {
+      "id": "shinigami.telemetry",
+      "kinds": [
+        "service"
+      ],
+      "role": "telemetry",
+      "bundle": "core",
+      "requires": [],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.power-state",
+      "kinds": [
+        "service"
+      ],
+      "role": "power-state",
+      "bundle": "core",
+      "requires": [],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.workspaces",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G2",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.update-center",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "update-center",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.status",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G3",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state",
+        "shinigami.update-center"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.notifications",
+        "omarchy.tray"
+      ]
+    },
+    {
+      "id": "shinigami.memory",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "G4",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state",
+        "shinigami.telemetry"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.cpu",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G5",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state",
+        "shinigami.telemetry"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.audio",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G6",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.audio",
+        "omarchy.media"
+      ]
+    },
+    {
+      "id": "shinigami.ai",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G7",
+      "bundle": "default",
+      "defaultSection": "left",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.center",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G8",
+      "bundle": "default",
+      "defaultSection": "center",
+      "requires": [
+        "shinigami.state",
+        "shinigami.status"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.idle",
+        "omarchy.notifications",
+        "omarchy.system-update",
+        "omarchy.weather"
+      ]
+    },
+    {
+      "id": "shinigami.media",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G9",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.media"
+      ]
+    },
+    {
+      "id": "shinigami.quick-access",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G10",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.background"
+      ]
+    },
+    {
+      "id": "shinigami.onedrive",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "onedrive",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.network",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G11",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.battery",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "G12",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state",
+        "shinigami.power-state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.display-manager",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G13",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": [],
+      "hostContracts": [
+        "omarchy.monitor"
+      ]
+    },
+    {
+      "id": "shinigami.power-profile",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "G14",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state",
+        "shinigami.power-state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.bluetooth",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G15",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.temperature",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "G16",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state",
+        "shinigami.telemetry"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.gpu",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "G17",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state",
+        "shinigami.cpu"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.storage",
+      "kinds": [
+        "bar-widget",
+        "service"
+      ],
+      "role": "G18",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.wallpaper-manager",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "wallpaper-manager",
+      "bundle": "default",
+      "defaultSection": "right",
+      "requires": [
+        "shinigami.state",
+        "shinigami.quick-access"
+      ],
+      "recommends": []
+    },
+    {
+      "id": "shinigami.indicators",
+      "kinds": [
+        "bar-widget"
+      ],
+      "role": "indicators",
+      "bundle": "default",
+      "defaultSection": "center",
+      "requires": [
+        "shinigami.state",
+        "shinigami.status"
+      ],
+      "recommends": []
+    }
+  ],
+  "profiles": [
+    {
+      "id": "default",
+      "activeBar": "shinigami.bar",
+      "install": [
+        "shinigami.bar",
+        "shinigami.state",
+        "shinigami.control-center",
+        "shinigami.reactor",
+        "shinigami.telemetry",
+        "shinigami.power-state",
+        "shinigami.workspaces",
+        "shinigami.update-center",
+        "shinigami.status",
+        "shinigami.memory",
+        "shinigami.cpu",
+        "shinigami.audio",
+        "shinigami.ai",
+        "shinigami.center",
+        "shinigami.media",
+        "shinigami.quick-access",
+        "shinigami.onedrive",
+        "shinigami.network",
+        "shinigami.battery",
+        "shinigami.display-manager",
+        "shinigami.power-profile",
+        "shinigami.bluetooth",
+        "shinigami.temperature",
+        "shinigami.gpu",
+        "shinigami.storage",
+        "shinigami.wallpaper-manager",
+        "shinigami.indicators"
+      ],
+      "enableServices": [
+        "shinigami.state",
+        "shinigami.reactor",
+        "shinigami.telemetry",
+        "shinigami.power-state",
+        "shinigami.update-center"
+      ],
+      "layout": {
+        "left": [
+          "shinigami.control-center",
+          "shinigami.workspaces",
+          "shinigami.status",
+          "shinigami.memory",
+          "shinigami.cpu",
+          "shinigami.audio",
+          "shinigami.ai"
+        ],
+        "center": [
+          "shinigami.center",
+          "shinigami.indicators"
+        ],
+        "right": [
+          "shinigami.media",
+          "shinigami.quick-access",
+          "shinigami.wallpaper-manager",
+          "shinigami.onedrive",
+          "shinigami.network",
+          "shinigami.power-profile",
+          "shinigami.battery",
+          "shinigami.display-manager",
+          "shinigami.bluetooth",
+          "shinigami.temperature",
+          "shinigami.gpu",
+          "shinigami.storage"
+        ]
+      },
+      "disabledByDefault": [
+        "shinigami.ai",
+        "shinigami.power-profile",
+        "shinigami.bluetooth"
+      ]
+    }
+  ]
+}

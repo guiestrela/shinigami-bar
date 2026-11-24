@@ -1,0 +1,36 @@
+import QtQuick
+import Quickshell
+import "services" as Services
+
+ShellRoot {
+  id: root
+  property var receivedEvent: null
+
+  Services.QuoteService {
+    id: quoteService
+    backendEnabled: true
+  }
+
+  Connections {
+    target: quoteService
+    function onEventRaised(event) { root.receivedEvent = event }
+  }
+
+  Timer {
+    interval: 1200
+    running: true
+    onTriggered: {
+      if (!quoteService.armed || !root.receivedEvent
+          || root.receivedEvent.profile !== "quote"
+          || root.receivedEvent.kind !== "text"
+          || String(root.receivedEvent.left || "") === ""
+          || quoteService.eventCount !== 1) {
+        console.error("quote service smoke failed")
+        Qt.exit(1)
+        throw new Error("quote service smoke failed")
+      }
+      console.log("quote service smoke passed")
+      Qt.exit(0)
+    }
+  }
+}

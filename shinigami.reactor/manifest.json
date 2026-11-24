@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.reactor",
+  "name": "Shinigami Reactor",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami event and quote Reactor service for compatible bar styles.",
+  "kinds": [
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "core",
+    "role": "reactor",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": [
+      "shinigami.workspaces",
+      "shinigami.status",
+      "shinigami.power-state",
+      "shinigami.ai",
+      "shinigami.network",
+      "shinigami.audio",
+      "shinigami.update-center"
+    ],
+    "hostContracts": [
+      "omarchy.media"
+    ]
+  }
+}

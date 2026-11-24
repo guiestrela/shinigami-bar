@@ -1,0 +1,1737 @@
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import re
+import shutil
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+from . import STATE_SCHEMA_VERSION, SUITE_ID
+from .admission import (
+    AdmissionError,
+    UnsupportedInstallIdentity,
+    preflight_lifecycle_state,
+    require_current_payload_identity,
+)
+from .config import (
+    apply_identity_contract,
+    ConfigError,
+    apply_profile,
+    encode_config,
+    entry_id,
+    migrate_legacy_config,
+    migrate_state_settings,
+    native_sections,
+    validate_state_settings,
+    parse_config_bytes,
+    read_config,
+    reconcile_profile_additions,
+    reconcile_profile_services,
+    remove_plugin_ids,
+    remove_suite,
+    select_omarchy_image_picker,
+    state_entry,
+)
+from .model import (
+    ContractError,
+    PluginSpec,
+    Suite,
+    plugin_payload_digest,
+    suite_payload_digest,
+)
+from .menu_extension import (
+    END_MARKER,
+    START_MARKER,
+    MenuExtensionError,
+    StockMenuError,
+    generated_extension_is_empty,
+    install_picker_routing,
+    preflight_picker_removal,
+    read_extension,
+    remove_picker_routing,
+)
+from .runtime import OmarchyRuntime, RuntimeFailure, RuntimePaths
+from .transaction import (
+    PluginTransaction,
+    SuiteLock,
+    TransactionError,
+    _read_bounded_regular_path,
+    is_managed_target,
+    preflight_legacy_removals,
+    preflight_removals,
+    preflight_removal_ids,
+    preflight_replacements,
+    recover_transactions,
+)
+
+
+class CliError(RuntimeError):
+    pass
+
+
+LEGACY_SUITE_ID = "hancore.qsrise"
+LEGACY_PLUGIN_PREFIX = "hancore.qsrise"
+PLUGIN_PREFIX = "shinigami"
+CONTINUITY_PLUGIN_IDS = {
+    "shinigami.control-center",
+    "shinigami.state",
+}
+PICKER_PLUGIN_ID = "shinigami.quick-access"
+
+
+def repository_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def install_state_file(paths: RuntimePaths) -> Path:
+    return paths.state_dir / "install.json"
+
+
+def legacy_state_dir(paths: RuntimePaths) -> Path:
+    return paths.state_dir.parent / "qsrise"
+
+
+def legacy_cache_dir(paths: RuntimePaths) -> Path:
+    return paths.cache_dir.parent / "qsrise"
+
+
+def legacy_install_state_file(paths: RuntimePaths) -> Path:
+    return legacy_state_dir(paths) / "install.json"
+
+
+def legacy_plugin_id(plugin_id: str) -> str:
+    if plugin_id == PLUGIN_PREFIX or plugin_id.startswith(PLUGIN_PREFIX + "."):
+        return LEGACY_PLUGIN_PREFIX + plugin_id[len(PLUGIN_PREFIX):]
+    raise CliError(f"cannot map Shinigami plugin id to legacy namespace: {plugin_id}")
+
+
+def legacy_plugin_ids(suite: Suite) -> list[str]:
+    return [legacy_plugin_id(plugin_id) for plugin_id in suite.plugins]
+
+
+def load_legacy_install_state(paths: RuntimePaths, suite: Suite) -> dict[str, Any]:
+    path = legacy_install_state_file(paths)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise CliError("legacy QS Rise suite state was not found") from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise CliError(f"cannot read legacy install state {path}: {error}") from error
+
+    expected_plugins = set(legacy_plugin_ids(suite))
+    plugins = state.get("plugins") if isinstance(state, dict) else None
+    if (
+        not isinstance(state, dict)
+        or state.get("schemaVersion") != STATE_SCHEMA_VERSION
+        or state.get("suiteId") != LEGACY_SUITE_ID
+        or not isinstance(plugins, list)
+        or any(not isinstance(plugin_id, str) for plugin_id in plugins)
+        or set(plugins) != expected_plugins
+    ):
+        raise CliError(f"legacy install state is incompatible: {path}")
+
+    transactions = legacy_state_dir(paths) / "transactions"
+    if transactions.is_dir() and any(transactions.iterdir()):
+        raise CliError(
+            "legacy QS Rise has an unfinished transaction; recover it with "
+            "the old qsrise-suite before migrating"
+        )
+    return state
+
+
+def load_install_state(paths: RuntimePaths, suite: Suite) -> dict[str, Any]:
+    path = install_state_file(paths)
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise CliError("Shinigami is not installed by this suite") from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise CliError(f"cannot read install state {path}: {error}") from error
+    if (
+        not isinstance(state, dict)
+        or state.get("schemaVersion") != STATE_SCHEMA_VERSION
+        or state.get("suiteId") != SUITE_ID
+        or not isinstance(state.get("plugins"), list)
+        or not re.fullmatch(r"[0-9a-f]{64}", str(state.get("payloadDigest") or ""))
+        or not isinstance(state.get("pluginDigests"), dict)
+    ):
+        raise CliError(f"invalid Shinigami install state: {path}")
+    plugin_ids = state["plugins"]
+    known_or_retired = set(suite.plugins) | set(suite.retired_plugins)
+    if any(
+        not isinstance(plugin_id, str) or plugin_id not in known_or_retired
+        for plugin_id in plugin_ids
+    ):
+        raise CliError("install state references unknown plugins")
+    if set(state["pluginDigests"]) != set(plugin_ids) or any(
+        not re.fullmatch(r"[0-9a-f]{64}", str(value))
+        for value in state["pluginDigests"].values()
+    ):
+        raise CliError("install state contains invalid plugin payload digests")
+    if suite_payload_digest(state["pluginDigests"]) != state["payloadDigest"]:
+        raise CliError("install state payload digest is inconsistent")
+    origin = str(state.get("installOrigin") or "checkout")
+    if origin not in ("checkout", "package"):
+        raise CliError("install state contains an invalid payload origin")
+    if origin == "package" and (
+        state.get("packageName") != "shinigami-shell"
+        or not isinstance(state.get("packageVersion"), str)
+        or not state.get("packageVersion")
+    ):
+        raise CliError("package install state is missing authoritative metadata")
+    return state
+
+
+def version_key(value: str) -> tuple[int, int, int, int, tuple[tuple[int, Any], ...]]:
+    identifier = r"[0-9A-Za-z-]+"
+    match = re.fullmatch(
+        r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+        rf"(?:-({identifier}(?:\.{identifier})*))?"
+        rf"(?:\+{identifier}(?:\.{identifier})*)?",
+        value,
+    )
+    if not match:
+        raise CliError(f"unsupported Shinigami version: {value}")
+    prerelease = match.group(4)
+    prerelease_parts = prerelease.split(".") if prerelease else []
+    if any(
+        item.isdigit() and len(item) > 1 and item.startswith("0")
+        for item in prerelease_parts
+    ):
+        raise CliError(f"unsupported Shinigami version: {value}")
+    identifiers: tuple[tuple[int, Any], ...] = tuple(
+        (0, int(item)) if item.isdigit() else (1, item)
+        for item in prerelease_parts
+    )
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+        0 if prerelease else 1,
+        identifiers,
+    )
+
+
+def refuse_downgrade(
+    state: dict[str, Any], suite: Suite, *, allow: bool = False
+) -> None:
+    if state.get("settingsStorageVersion") == 1 and suite.settings_storage_version != 1:
+        raise CliError("settings migration is one-way; target payload needs settingsStorageVersion: 1")
+    installed = str(state.get("suiteVersion") or "")
+    if not allow and version_key(suite.version) < version_key(installed):
+        raise CliError(
+            f"refusing downgrade from {installed} to {suite.version}; "
+            "install a compatible newer package or rerun an intentional package "
+            "rollback with --allow-downgrade"
+        )
+
+
+def make_install_state(
+    suite: Suite,
+    plugin_ids: list[str],
+    profile: str,
+    active_bar: str,
+    revision: str,
+    payload_digest: str,
+    plugin_digests: dict[str, str],
+    *,
+    activation_mode: str = "managed",
+    layout_policy: str = "managed",
+    configured_bar: str | None = None,
+    previous_bar: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    selected_profile = suite.profile(profile)
+    if activation_mode not in ("managed", "external"):
+        raise CliError(f"invalid activation mode: {activation_mode}")
+    if layout_policy not in ("managed", "preserved"):
+        raise CliError(f"invalid layout policy: {layout_policy}")
+    package = suite.package_metadata()
+    result = {
+        "schemaVersion": STATE_SCHEMA_VERSION,
+        "suiteId": SUITE_ID,
+        "suiteVersion": suite.version,
+        "profile": profile,
+        "activeBar": active_bar,
+        "plugins": plugin_ids,
+        "installOrigin": "package" if package is not None else "checkout",
+        "payloadRoot": str(suite.root),
+        "sourceRevision": revision,
+        "payloadDigest": payload_digest,
+        "pluginDigests": plugin_digests,
+        "activation": {
+            "activeBar": selected_profile.active_bar,
+            "mode": activation_mode,
+            "layoutPolicy": layout_policy,
+            "configuredBar": configured_bar or selected_profile.active_bar,
+            "layout": {
+                region: list(selected_profile.layout[region])
+                for region in ("left", "center", "right")
+            },
+            "enableServices": list(selected_profile.enable_services),
+            "continuityPlugins": sorted(CONTINUITY_PLUGIN_IDS),
+        },
+        "updatedEpoch": int(time.time()),
+    }
+    if suite.settings_storage_version == 1:
+        result["settingsStorageVersion"] = 1
+    if package is not None:
+        result["packageName"] = package["packageName"]
+        result["packageVersion"] = package["version"]
+    else:
+        result["sourceRoot"] = str(suite.root)
+    if isinstance(previous_bar, dict):
+        result["previousBar"] = copy.deepcopy(previous_bar)
+    return result
+
+
+def strip_suite_bar(
+    bar: dict[str, Any], plugin_ids: set[str], *, continuity: bool = True
+) -> dict[str, Any]:
+    result = copy.deepcopy(bar)
+    layout = result.get("layout", {})
+    for region in native_sections(layout):
+        if region in layout:
+            layout[region] = [entry for entry in layout[region]
+                              if entry_id(entry) not in plugin_ids - (CONTINUITY_PLUGIN_IDS if continuity else set())]
+    if result.get("centerAnchor") in plugin_ids:
+        result.pop("centerAnchor")
+    return result
+
+
+def has_stock_widgets(bar: dict[str, Any], plugin_ids: set[str]) -> bool:
+    return any(entry_id(entry) not in plugin_ids
+               for region in ("left", "center", "right") for entry in bar.get("layout", {}).get(region, []))
+
+
+def previous_bar_for_state(
+    state: dict[str, Any], defaults: dict[str, Any], suite: Suite,
+    *, continuity: bool = True,
+) -> dict[str, Any]:
+    """Return a sanitized predecessor with stock widgets, or the host default."""
+    plugin_ids = set(suite.plugins)
+    previous = state.get("previousBar")
+    if isinstance(previous, dict):
+        previous = strip_suite_bar(previous, plugin_ids, continuity=continuity)
+        if has_stock_widgets(previous, plugin_ids):
+            return previous
+    fallback = defaults.get("bar")
+    return strip_suite_bar(fallback, plugin_ids, continuity=continuity) if isinstance(fallback, dict) else {}
+
+
+def stock_bar_for_self_reference(paths: RuntimePaths) -> dict[str, Any]:
+    """Read the host default directly; an orphan Shinigami bar is not restorable."""
+    try:
+        defaults = parse_config_bytes(
+            paths.defaults_file.read_bytes(), paths.defaults_file,
+            user_config_exists=True,
+        )[0]
+    except OSError as error:
+        raise ConfigError(f"cannot read shell config {paths.defaults_file}: {error}") from error
+    bar = defaults.get("bar")
+    if not isinstance(bar, dict):
+        raise ConfigError(f"host shell defaults have no bar object: {paths.defaults_file}")
+    if "id" in bar and bar["id"] != "omarchy.bar":
+        raise ConfigError(f"host shell defaults do not select omarchy.bar: {paths.defaults_file}")
+    result = copy.deepcopy(bar)
+    result["id"] = "omarchy.bar"
+    return result
+
+
+def confirm(action: str, assume_yes: bool) -> None:
+    if assume_yes:
+        return
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        raise CliError(f"refusing non-interactive {action}; pass --yes")
+    answer = input(f"{action}? [y/N] ").strip().lower()
+    if answer not in ("y", "yes"):
+        raise CliError("cancelled")
+
+
+def validate_sources(runtime: OmarchyRuntime, specs: list[PluginSpec]) -> None:
+    for spec in specs:
+        runtime.validate_plugin(spec.source)
+
+
+def default_center_anchor(defaults: dict[str, Any]) -> str:
+    bar = defaults.get("bar")
+    return str(bar.get("centerAnchor") or "") if isinstance(bar, dict) else ""
+
+
+def print_plan(label: str, specs: list[PluginSpec], paths: RuntimePaths) -> None:
+    print(label)
+    print(f"  plugin directory: {paths.plugin_dir}")
+    print(f"  shell config:     {paths.config_file}")
+    print(f"  plugins:          {len(specs)}")
+    for spec in specs:
+        print(f"    {spec.id}")
+
+
+def install_picker_menu_extension(
+    transaction: PluginTransaction,
+    runtime: OmarchyRuntime,
+    previous_state: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    menu_path = transaction.paths.menu_extension_file
+    stock_path = transaction.paths.omarchy_root / "default/omarchy/omarchy-menu.jsonc"
+    source_path = menu_path
+    try:
+        raw = read_extension(source_path)
+        source_path = stock_path
+        stock_menu = read_extension(source_path)
+        source_path = menu_path
+        warnings: list[str] = []
+        payload = install_picker_routing(raw, stock_menu, warnings=warnings).encode("utf-8")
+    except MenuExtensionError as error:
+        if isinstance(error, StockMenuError):
+            source_path = stock_path
+            if not error.unparsable:
+                raise CliError(f"cannot update Omarchy menu {stock_path}: {error}") from error
+        remedy = (
+            "restore the Omarchy stock menu, then retry the same command"
+            if isinstance(error, StockMenuError) and error.unparsable else
+            "check that the stock menu is readable, then retry the same command"
+            if source_path == stock_path else
+            "fix the JSONC syntax or routing markers in this regular file, then retry the same command"
+        )
+        raise CliError(f"cannot update Omarchy menu {source_path}: {error}; {remedy}") from error
+    transaction.write_menu_extension(payload)
+    runtime.refresh_menu()
+    for warning in warnings:
+        print(f"shinigami-suite: warning: {stock_path}: {warning}", file=sys.stderr)
+    previous = (
+        previous_state.get("menuExtension")
+        if isinstance(previous_state, dict) else None
+    )
+    created_file = (
+        bool(previous.get("createdFile"))
+        if isinstance(previous, dict)
+        else not transaction.menu_extension_existed
+    )
+    if not transaction.menu_extension_existed:
+        created_file = True
+    return {
+        "schemaVersion": 1,
+        "createdFile": created_file,
+    }
+
+
+def remove_picker_menu_extension(
+    transaction: PluginTransaction,
+    runtime: OmarchyRuntime,
+    state: dict[str, Any],
+) -> None:
+    raw = read_extension(transaction.paths.menu_extension_file)
+    if raw is None:
+        return
+    payload = remove_picker_routing(raw)
+    metadata = state.get("menuExtension")
+    created_file = bool(metadata.get("createdFile")) \
+        if isinstance(metadata, dict) else False
+    transaction.write_menu_extension(
+        None
+        if created_file and generated_extension_is_empty(payload)
+        else payload.encode("utf-8")
+    )
+    runtime.refresh_menu()
+
+
+def activation_drift(
+    config: dict[str, Any],
+    suite: Suite,
+    profile_id: str,
+    active_bar: str,
+    managed_ids: set[str] | None = None,
+) -> list[str]:
+    profile = suite.profile(profile_id)
+    bar = config.get("bar") if isinstance(config.get("bar"), dict) else {}
+    layout = bar.get("layout") if isinstance(bar.get("layout"), dict) else {}
+    layout_ids = {
+        entry_id(entry)
+        for region in native_sections(layout)
+        for entry in layout.get(region, [])
+    }
+    service_ids = {entry_id(entry) for entry in config.get("plugins", [])}
+    drift: list[str] = []
+    if str(bar.get("id") or "omarchy.bar") != active_bar:
+        drift.append(f"active bar is {bar.get('id') or 'omarchy.bar'}")
+    expected_widgets = set(
+        profile.layout["left"] + profile.layout["center"] + profile.layout["right"]
+    )
+    expected_services = set(profile.enable_services)
+    managed = set(suite.plugins) if managed_ids is None else managed_ids
+    expected_widgets &= managed
+    expected_services &= managed
+    missing_widgets = expected_widgets - layout_ids
+    if missing_widgets:
+        drift.append(f"missing widgets: {', '.join(sorted(missing_widgets))}")
+    unexpected_widgets = (layout_ids & managed) - expected_widgets
+    if unexpected_widgets:
+        drift.append(
+            f"unexpected widgets: {', '.join(sorted(unexpected_widgets))}"
+        )
+    missing_services = expected_services - service_ids
+    if missing_services:
+        drift.append(f"missing services: {', '.join(sorted(missing_services))}")
+    unexpected_services = (service_ids & managed) - expected_services
+    if unexpected_services:
+        drift.append(
+            f"unexpected services: {', '.join(sorted(unexpected_services))}"
+        )
+    return drift
+
+
+def runtime_enabled_plugin_ids(
+    suite: Suite,
+    profile_id: str,
+) -> set[str]:
+    """Return IDs whose enabled flag is meaningful in Quattro's plugin list."""
+    profile = suite.profile(profile_id)
+    enabled = {
+        plugin_id
+        for region in ("left", "center", "right")
+        for plugin_id in profile.layout[region]
+    }
+    enabled.add(profile.active_bar)
+    enabled.update(
+        plugin_id
+        for plugin_id in profile.enable_services
+        if not suite.plugins[plugin_id].is_bar_widget
+    )
+    return enabled
+
+
+def configured_bar_id(config: dict[str, Any]) -> str:
+    bar = config.get("bar") if isinstance(config.get("bar"), dict) else {}
+    return str(bar.get("id") or "omarchy.bar")
+
+
+def external_activation(
+    state: dict[str, Any],
+    config: dict[str, Any],
+) -> bool:
+    """Return whether the suite explicitly delegates layout ownership."""
+    activation = state.get("activation")
+    return isinstance(activation, dict) \
+        and activation.get("mode") == "external"
+
+
+def external_runtime_enabled_plugin_ids(
+    suite: Suite,
+    config: dict[str, Any],
+) -> set[str]:
+    """Return suite roots enabled by an externally owned bar configuration."""
+    bar = config.get("bar") if isinstance(config.get("bar"), dict) else {}
+    layout = bar.get("layout") if isinstance(bar.get("layout"), dict) else {}
+    enabled = {
+        entry_id(entry)
+        for region in native_sections(layout)
+        for entry in layout.get(region, [])
+    }
+    enabled.update(
+        plugin_id
+        for plugin_id in (
+            entry_id(entry) for entry in config.get("plugins", [])
+        )
+        if plugin_id in suite.plugins
+        and not suite.plugins[plugin_id].is_bar_widget
+    )
+    enabled &= set(suite.plugins)
+    enabled.discard("shinigami.bar")
+    return enabled
+
+
+def external_activation_drift(
+    config: dict[str, Any],
+    suite: Suite,
+    profile_id: str,
+) -> list[str]:
+    """Check dependencies without claiming ownership of host or widget layout."""
+    services = {entry_id(entry) for entry in config.get("plugins", [])}
+    missing = set(suite.profile(profile_id).enable_services) - services
+    return (
+        [f"missing services: {', '.join(sorted(missing))}"]
+        if missing else []
+    )
+
+
+def preserve_external_bar(
+    config: dict[str, Any],
+    profile: Any,
+    *, migrate_storage: bool = True,
+) -> dict[str, Any]:
+    """Keep the host and layout byte-semantics while enabling suite services."""
+    return reconcile_profile_services(
+        apply_identity_contract(config, migrate_storage=migrate_storage),
+        profile,
+    )
+
+
+def command_install(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    if args.no_activate != args.keep_layout:
+        raise CliError(
+            "--no-activate and --keep-layout must be used together"
+        )
+    if install_state_file(paths).exists():
+        raise CliError("Shinigami is already suite-managed; use update")
+    if legacy_install_state_file(paths).exists():
+        raise CliError(
+            "legacy QS Rise is installed; use 'shinigami-suite migrate'"
+        )
+    profile = suite.profile(args.profile)
+    specs = suite.selected(profile.install)
+    validate_sources(runtime, specs)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    external = args.no_activate and args.keep_layout
+    self_reference_stock = (
+        stock_bar_for_self_reference(paths)
+        if configured_bar_id(current) == "shinigami.bar" else None
+    )
+
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        return remove_plugin_ids((
+            preserve_external_bar(
+                config,
+                profile,
+                migrate_storage=suite.settings_storage_version == 1,
+            )
+            if external
+            else apply_identity_contract(
+                apply_profile(config, profile, suite.plugins, paths.plugin_dir),
+                migrate_storage=suite.settings_storage_version == 1,
+            )
+        ), suite.retired_plugins)
+
+    desired = desired_for(current)
+    preflight_replacements(paths.plugin_dir, specs)
+    preflight_removal_ids(paths.plugin_dir, suite.retired_plugins)
+    label = (
+        f"Install Shinigami profile {profile.id} with the current bar and layout"
+        if external else f"Install Shinigami profile {profile.id}"
+    )
+    print_plan(label, specs, paths)
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm(
+        "Install Shinigami and keep the current bar and layout"
+        if external else "Install and activate Shinigami",
+        args.yes,
+    )
+
+    revision = suite.revision()
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.preflight_targets(specs)
+        payload_digest, plugin_digests = transaction.stage(
+            specs, revision=revision, suite_version=suite.version
+        )
+        # Every lifecycle config writer uses one authoritative post-drain
+        # transform. This deliberately avoids claiming a filesystem CAS while
+        # preserving an externally owned bar and layout byte-semantically.
+        runtime.require_session_unlocked("Shinigami install")
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        previous_bar = current.get("bar")
+        if configured_bar_id(current) == "shinigami.bar":
+            previous_bar = self_reference_stock or stock_bar_for_self_reference(paths)
+        desired_state = make_install_state(
+            suite,
+            list(profile.install),
+            profile.id,
+            profile.active_bar,
+            revision,
+            payload_digest,
+            plugin_digests,
+            activation_mode="external" if external else "managed",
+            layout_policy="preserved" if external else "managed",
+            configured_bar=configured_bar_id(desired),
+            previous_bar=previous_bar,
+        )
+        transaction.expose()
+        transaction.stage_removal_ids(suite.retired_plugins)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        if PICKER_PLUGIN_ID in profile.install:
+            desired_state["menuExtension"] = install_picker_menu_extension(
+                transaction, runtime
+            )
+        if external:
+            runtime.verify_update(
+                set(profile.install),
+                payload_digest,
+                enabled_plugin_ids=external_runtime_enabled_plugin_ids(
+                    suite, desired
+                ),
+            )
+        else:
+            runtime.verify_install(
+                set(profile.install),
+                profile.active_bar,
+                payload_digest,
+                enabled_plugin_ids=runtime_enabled_plugin_ids(
+                    suite, profile.id
+                ),
+            )
+        transaction.finish(desired_state, archive_previous=True)
+    if external:
+        print(
+            f"Installed Shinigami ({len(specs)} plugins); "
+            "kept the current bar and layout."
+        )
+    else:
+        print(f"Installed and activated Shinigami ({len(specs)} plugins).")
+    return 0
+
+
+def command_migrate(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    if install_state_file(paths).exists():
+        raise CliError("Shinigami is already suite-managed; use update")
+
+    legacy_state = load_legacy_install_state(paths, suite)
+    profile_id = str(legacy_state.get("profile") or "default")
+    profile = suite.profile(profile_id)
+    specs = suite.selected(profile.install)
+    old_plugin_ids = legacy_plugin_ids(suite)
+    validate_sources(runtime, specs)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
+    # Migration changes the private namespace and applies the versioned Shinigami
+    # identity contract. User layout order, widget options, third-party entries,
+    # bar position, and all unrelated keys stay equivalent after JSON decoding.
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        return reconcile_profile_services(
+            apply_identity_contract(
+                migrate_legacy_config(config),
+                migrate_storage=suite.settings_storage_version == 1,
+            ),
+            profile,
+        )
+
+    desired = desired_for(current)
+    preflight_replacements(paths.plugin_dir, specs)
+    preflight_legacy_removals(paths.plugin_dir, old_plugin_ids)
+
+    print_plan("Migrate QS Rise to Shinigami", specs, paths)
+    print(f"  legacy plugins:   {len(old_plugin_ids)}")
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm("Migrate QS Rise to Shinigami", args.yes)
+
+    revision = suite.revision()
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.preflight_targets(specs)
+        payload_digest, plugin_digests = transaction.stage(
+            specs, revision=revision, suite_version=suite.version
+        )
+        # Migration changes the active bar owner and therefore uses the same
+        # pre-publication drain as managed install/update/repair. Never stop a
+        # shell immediately after starting an asynchronous plugin rescan.
+        runtime.require_session_unlocked("Shinigami migration")
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        previous_bar = previous_bar_for_state(legacy_state, defaults, suite)
+        current_bar = current.get("bar")
+        if isinstance(current_bar, dict) and "transparent" in current_bar:
+            previous_bar["transparent"] = copy.deepcopy(
+                current_bar["transparent"]
+            )
+        else:
+            previous_bar.pop("transparent", None)
+        desired_state = make_install_state(
+            suite,
+            list(profile.install),
+            profile.id,
+            profile.active_bar,
+            revision,
+            payload_digest,
+            plugin_digests,
+            configured_bar=configured_bar_id(desired),
+            previous_bar=previous_bar,
+        )
+        desired_state["migratedFrom"] = {
+            "suiteId": LEGACY_SUITE_ID,
+            "suiteVersion": legacy_state.get("suiteVersion"),
+            "sourceRevision": legacy_state.get("sourceRevision"),
+            "payloadDigest": legacy_state.get("payloadDigest"),
+            "migratedEpoch": int(time.time()),
+        }
+        transaction.expose()
+        transaction.stage_legacy_removal(old_plugin_ids)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        if PICKER_PLUGIN_ID in profile.install:
+            desired_state["menuExtension"] = install_picker_menu_extension(
+                transaction, runtime
+            )
+        runtime.verify_install(
+            set(profile.install),
+            profile.active_bar,
+            payload_digest,
+            enabled_plugin_ids=runtime_enabled_plugin_ids(
+                suite, profile.id
+            ),
+        )
+        runtime.verify_uninstall(
+            set(old_plugin_ids), expected_bar_namespace="shinigami-bar"
+        )
+        transaction.finish(desired_state, archive_previous=True)
+
+    old_state_dir = legacy_state_dir(paths)
+    old_cache_dir = legacy_cache_dir(paths)
+    if old_state_dir.is_dir():
+        shutil.rmtree(old_state_dir)
+    if old_cache_dir.is_dir():
+        shutil.rmtree(old_cache_dir)
+    print(
+        "Migrated QS Rise to Shinigami; preserved user settings and applied "
+        "the one-time Shinigami identity default."
+    )
+    return 0
+
+
+def command_update(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    state = load_install_state(paths, suite)
+    refuse_downgrade(
+        state, suite, allow=bool(getattr(args, "allow_downgrade", False))
+    )
+    profile_id = str(state.get("profile") or "default")
+    profile = suite.profile(profile_id)
+    plugin_ids = list(profile.install)
+    specs = suite.selected(profile.install)
+    validate_sources(runtime, specs)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
+    external = external_activation(state, current)
+    retired_installed = set(state["plugins"]) & set(suite.retired_plugins)
+    current_installed = set(state["plugins"]) - retired_installed
+
+    def storage_config(config: dict[str, Any]) -> dict[str, Any]:
+        return (
+            migrate_state_settings(config, import_legacy=False)
+            if state.get("settingsStorageVersion") == 1
+            else config
+        )
+
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        config = storage_config(config)
+        return remove_plugin_ids((
+            preserve_external_bar(
+                config,
+                profile,
+                migrate_storage=suite.settings_storage_version == 1,
+            )
+            if external
+            else reconcile_profile_services(
+                reconcile_profile_additions(
+                    apply_identity_contract(
+                        config,
+                        migrate_storage=suite.settings_storage_version == 1,
+                    ),
+                    profile,
+                    current_installed,
+                    suite.plugins,
+                ),
+                profile,
+            )
+        ), suite.retired_plugins)
+
+    current = storage_config(current)
+    drift = (
+        external_activation_drift(current, suite, profile_id)
+        if external
+        else activation_drift(
+            current,
+            suite,
+            profile_id,
+            str(state.get("activeBar") or "shinigami.bar"),
+            current_installed,
+        )
+    )
+    if drift and not external:
+        raise CliError(
+            "Shinigami is installed but inactive; run 'shinigami-suite activate' "
+            f"first ({'; '.join(drift)})"
+        )
+    desired = desired_for(current)
+    adoptable_plugin_ids = current_installed
+    preflight_replacements(
+        paths.plugin_dir, specs, adoptable_plugin_ids
+    )
+    preflight_removal_ids(paths.plugin_dir, retired_installed)
+    print_plan("Update installed Shinigami plugins", specs, paths)
+    if retired_installed:
+        print("  retire:           " + ", ".join(sorted(retired_installed)))
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm("Update Shinigami", args.yes)
+
+    revision = suite.revision()
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.preflight_targets(specs, adoptable_plugin_ids)
+        payload_digest, plugin_digests = transaction.stage(
+            specs, revision=revision, suite_version=suite.version
+        )
+        # Hidden staging paths are ignored by Quattro's plugin watcher. Check
+        # the authoritative lock service only after staging is complete and
+        # immediately before the first live plugin directory is renamed.
+        runtime.require_session_unlocked("Shinigami update")
+        # Managed and externally presented updates both drain before replacing
+        # live roots. The post-stop document is the sole transform authority;
+        # external mode still preserves its bar id, layout, and design.
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        desired_state = make_install_state(
+            suite,
+            plugin_ids,
+            profile_id,
+            str(state.get("activeBar") or "shinigami.bar"),
+            revision,
+            payload_digest,
+            plugin_digests,
+            activation_mode="external" if external else "managed",
+            layout_policy="preserved" if external else "managed",
+            configured_bar=configured_bar_id(desired),
+            previous_bar=previous_bar_for_state(state, defaults, suite),
+        )
+        transaction.expose()
+        transaction.stage_removal_ids(retired_installed)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        if PICKER_PLUGIN_ID in plugin_ids:
+            desired_state["menuExtension"] = install_picker_menu_extension(
+                transaction, runtime, state
+            )
+        runtime.verify_update(
+            set(plugin_ids),
+            payload_digest,
+            enabled_plugin_ids=(
+                external_runtime_enabled_plugin_ids(suite, desired)
+                if external
+                else runtime_enabled_plugin_ids(suite, profile_id)
+            ),
+        )
+        transaction.finish(desired_state, archive_previous=True)
+    print(f"Updated Shinigami ({len(specs)} plugins).")
+    return 0
+
+
+def command_repair(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    """Restore the complete suite payload and its active profile atomically."""
+    state = load_install_state(paths, suite)
+    refuse_downgrade(
+        state, suite, allow=bool(getattr(args, "allow_downgrade", False))
+    )
+    profile_id = str(state.get("profile") or "default")
+    profile = suite.profile(profile_id)
+    plugin_ids = list(profile.install)
+    specs = suite.selected(profile.install)
+    validate_sources(runtime, specs)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
+    external = external_activation(state, current)
+    retired_installed = set(state["plugins"]) & set(suite.retired_plugins)
+    current_installed = set(state["plugins"]) - retired_installed
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        if state.get("settingsStorageVersion") == 1:
+            config = migrate_state_settings(config, import_legacy=False)
+        return remove_plugin_ids((
+            preserve_external_bar(
+                config,
+                profile,
+                migrate_storage=suite.settings_storage_version == 1,
+            )
+            if external
+            else apply_identity_contract(
+                apply_profile(config, profile, suite.plugins, paths.plugin_dir),
+                migrate_storage=suite.settings_storage_version == 1,
+            )
+        ), suite.retired_plugins)
+
+    desired = desired_for(current)
+    adoptable_plugin_ids = current_installed
+    preflight_replacements(
+        paths.plugin_dir, specs, adoptable_plugin_ids
+    )
+    preflight_removal_ids(paths.plugin_dir, retired_installed)
+    print_plan(
+        f"Repair Shinigami profile {profile.id}",
+        specs,
+        paths,
+    )
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm(
+        "Repair the complete Shinigami payload"
+        + (
+            " while keeping the current bar and layout"
+            if external else " and restore its managed layout"
+        ),
+        args.yes,
+    )
+
+    revision = suite.revision()
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.preflight_targets(specs, adoptable_plugin_ids)
+        payload_digest, plugin_digests = transaction.stage(
+            specs, revision=revision, suite_version=suite.version
+        )
+        runtime.require_session_unlocked("Shinigami repair")
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        desired_state = make_install_state(
+            suite,
+            plugin_ids,
+            profile_id,
+            profile.active_bar,
+            revision,
+            payload_digest,
+            plugin_digests,
+            activation_mode="external" if external else "managed",
+            layout_policy="preserved" if external else "managed",
+            configured_bar=configured_bar_id(desired),
+            previous_bar=previous_bar_for_state(state, defaults, suite),
+        )
+        transaction.expose()
+        transaction.stage_removal_ids(retired_installed)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        if PICKER_PLUGIN_ID in plugin_ids:
+            desired_state["menuExtension"] = install_picker_menu_extension(
+                transaction, runtime, state
+            )
+        if external:
+            runtime.verify_update(
+                set(plugin_ids),
+                payload_digest,
+                enabled_plugin_ids=external_runtime_enabled_plugin_ids(
+                    suite, desired
+                ),
+            )
+        else:
+            runtime.verify_install(
+                set(plugin_ids),
+                profile.active_bar,
+                payload_digest,
+                enabled_plugin_ids=runtime_enabled_plugin_ids(
+                    suite, profile_id
+                ),
+            )
+        transaction.finish(desired_state, archive_previous=True)
+    print(
+        f"Repaired Shinigami ({len(specs)} plugins)"
+        + (
+            "; kept the current bar and layout."
+            if external else " and restored its managed layout."
+        )
+    )
+    return 0
+
+
+def command_activate(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    state = load_install_state(paths, suite)
+    retired_installed = set(state["plugins"]) & set(suite.retired_plugins)
+    if retired_installed:
+        raise CliError(
+            "installed Shinigami contains retired plugins; run "
+            "'shinigami-suite update' before activation"
+        )
+    profile_id = str(state.get("profile") or "default")
+    profile = suite.profile(profile_id)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        if state.get("settingsStorageVersion") == 1:
+            config = migrate_state_settings(config, import_legacy=False)
+        desired = apply_identity_contract(
+            apply_profile(config, profile, suite.plugins, paths.plugin_dir),
+            migrate_storage=state.get("settingsStorageVersion") == 1,
+        )
+        entry = state_entry(desired)
+        if entry is not None:
+            position = entry.pop("shinigamiRetainedPosition", None)
+            if configured_bar_id(config) != profile.active_bar and position in ("top", "bottom"):
+                desired["bar"]["position"] = position
+            provider = entry.pop("shinigamiRetainedImageStyle", None)
+            picker = entry.get("shinigami", {}).get("picker")
+            if (provider in ("tanzaku", "hearthstone") and isinstance(picker, dict)
+                    and picker.get("imageStyle") == "omarchy"):
+                picker["imageStyle"] = provider
+        return desired
+
+    desired = desired_for(current)
+    specs = suite.selected(profile.install)
+    preflight_replacements(paths.plugin_dir, specs)
+    print_plan(f"Activate Shinigami profile {profile.id}", specs, paths)
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm("Activate Shinigami and restore its configured layout", args.yes)
+
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        runtime.verify_install(
+            set(profile.install),
+            str(state.get("activeBar") or profile.active_bar),
+            str(state["payloadDigest"]),
+            enabled_plugin_ids=runtime_enabled_plugin_ids(
+                suite, profile_id
+            ),
+        )
+        activated_state = copy.deepcopy(state)
+        current_bar = current.get("bar")
+        if (
+            configured_bar_id(current) != profile.active_bar
+            and isinstance(current_bar, dict)
+            and has_stock_widgets(current_bar, set(suite.plugins))
+            and (not external_activation(state, current) or "previousBar" not in state)
+        ):
+            # Only an actual external-owner -> managed-owner transition updates
+            # the complete restoration snapshot. Re-activating an already
+            # managed bar must never snapshot Shinigami as its own predecessor.
+            # A preserved external layout may still contain Shinigami's widgets.
+            activated_state["previousBar"] = strip_suite_bar(current_bar, set(suite.plugins))
+        activation = activated_state.setdefault("activation", {})
+        activation["mode"] = "managed"
+        activation["layoutPolicy"] = "managed"
+        activation["configuredBar"] = configured_bar_id(desired)
+        activated_state["updatedEpoch"] = int(time.time())
+        transaction.finish(activated_state, archive_previous=False)
+    print("Activated Shinigami and restored its configured layout.")
+    return 0
+
+
+def command_deactivate(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    state = load_install_state(paths, suite)
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
+    active_bar = str(state.get("activeBar") or "shinigami.bar")
+    profile_id = str(state.get("profile") or "default")
+    profile = suite.profile(profile_id)
+    def desired_for(
+        config: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if state.get("settingsStorageVersion") == 1:
+            config = migrate_state_settings(config, import_legacy=False)
+        if args.keep_layout:
+            config = copy.deepcopy(config)
+            entry = state_entry(config)
+            if entry is not None:
+                picker = entry.get("shinigami", {}).get("picker")
+                if isinstance(picker, dict) and picker.get("imageStyle") in ("tanzaku", "hearthstone"):
+                    entry["shinigamiRetainedImageStyle"] = picker["imageStyle"]
+            desired_config = remove_plugin_ids(select_omarchy_image_picker(
+                preserve_external_bar(
+                    config,
+                    profile,
+                    migrate_storage=state.get("settingsStorageVersion") == 1,
+                )
+            ), suite.retired_plugins)
+            bar = desired_config.get("bar")
+            if isinstance(bar, dict) and str(bar.get("id") or "") == active_bar:
+                bar.pop("id", None)
+            next_state = copy.deepcopy(state)
+            activation = next_state.setdefault("activation", {})
+            activation["mode"] = "external"
+            activation["layoutPolicy"] = "preserved"
+            activation["configuredBar"] = configured_bar_id(desired_config)
+            next_state["updatedEpoch"] = int(time.time())
+            return desired_config, next_state
+        config = copy.deepcopy(config)
+        entry = state_entry(config)
+        if (entry is not None and configured_bar_id(config) == active_bar
+                and not external_activation(state, config)):
+            # Only the supported managed handoff owns a private position snapshot.
+            position = config["bar"].get("position")
+            if position in ("top", "bottom"):
+                entry["shinigamiRetainedPosition"] = position
+        if entry is not None:
+            picker = entry.get("shinigami", {}).get("picker")
+            if isinstance(picker, dict) and picker.get("imageStyle") in ("tanzaku", "hearthstone"):
+                # Repeated deactivation must not remember our native fallback.
+                entry["shinigamiRetainedImageStyle"] = picker["imageStyle"]
+        return (
+            remove_plugin_ids(select_omarchy_image_picker(
+                remove_suite(
+                    config,
+                    suite.plugins,
+                    paths.plugin_dir,
+                    active_bar,
+                    default_center_anchor(defaults),
+                    True,
+                    CONTINUITY_PLUGIN_IDS,
+                    previous_bar_for_state(state, defaults, suite),
+                    retain_layout=not external_activation(state, config),
+                )
+            ), suite.retired_plugins),
+            state,
+        )
+
+    desired, desired_state = desired_for(current)
+    print_plan(
+        (
+            "Use the stock Omarchy bar with the current Shinigami widget layout"
+            if args.keep_layout
+            else "Deactivate Shinigami and restore the stock Omarchy bar"
+        ),
+        suite.selected(tuple(
+            plugin_id
+            for plugin_id in state["plugins"]
+            if plugin_id in suite.plugins
+        )),
+        paths,
+    )
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm(
+        (
+            "Switch to the stock Omarchy bar and keep the current widget layout"
+            if args.keep_layout
+            else "Deactivate Shinigami while retaining its plugins and settings"
+        ),
+        args.yes,
+    )
+
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired, desired_state = desired_for(current)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        if args.keep_layout:
+            runtime.verify_update(
+                set(state["plugins"]),
+                str(state["payloadDigest"]),
+                enabled_plugin_ids=external_runtime_enabled_plugin_ids(
+                    suite, desired
+                ),
+            )
+        else:
+            runtime.verify_deactivation(
+                set(state["plugins"]),
+                active_bar,
+                allowed_enabled=CONTINUITY_PLUGIN_IDS,
+            )
+        transaction.finish(desired_state, archive_previous=False)
+    print(
+        (
+            "Switched to the stock Omarchy bar; kept Shinigami widgets, "
+            "plugins, and settings."
+            if args.keep_layout
+            else "Deactivated Shinigami and restored the stock Omarchy bar; "
+            "plugins and settings were retained."
+        )
+    )
+    return 0
+
+
+def command_uninstall(
+    args: argparse.Namespace,
+    suite: Suite,
+    paths: RuntimePaths,
+    runtime: OmarchyRuntime,
+) -> int:
+    state = load_install_state(paths, suite)
+    try:
+        menu = read_extension(paths.menu_extension_file)
+        if menu is not None:
+            preflight_picker_removal(menu)
+    except MenuExtensionError as error:
+        raise CliError(
+            f"cannot remove Omarchy menu routing {paths.menu_extension_file}: {error}; "
+            "fix the JSONC syntax or routing markers, or move this file aside, then retry uninstall"
+        ) from error
+    plugin_ids = list(dict.fromkeys(state["plugins"]))
+    current_plugin_ids = [
+        plugin_id for plugin_id in plugin_ids if plugin_id in suite.plugins
+    ]
+    retired_plugin_ids = [
+        plugin_id for plugin_id in plugin_ids if plugin_id in suite.retired_plugins
+    ]
+    specs = suite.selected(tuple(current_plugin_ids))
+    current, _ = read_config(paths.config_file, paths.defaults_file)
+    defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
+    def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        if args.keep_settings:
+            config = migrate_state_settings(
+                config,
+                import_legacy=state.get("settingsStorageVersion") != 1,
+            )
+        return remove_plugin_ids(
+            remove_suite(
+                config,
+                suite.plugins,
+                paths.plugin_dir,
+                str(state.get("activeBar") or "shinigami.bar"),
+                default_center_anchor(defaults),
+                args.keep_settings,
+                retain_layout=args.keep_settings,
+                restore_bar=(
+                    previous_bar_for_state(state, defaults, suite, continuity=False)
+                    if str(state.get("activation", {}).get("mode") or "managed")
+                    == "managed"
+                    else None
+                ),
+            ),
+            retired_plugin_ids,
+        )
+
+    desired = desired_for(current)
+    preflight_removals(paths.plugin_dir, specs)
+    preflight_removal_ids(paths.plugin_dir, retired_plugin_ids)
+    print_plan("Uninstall Shinigami", specs, paths)
+    if args.dry_run:
+        print("Dry run complete; no files changed.")
+        return 0
+    confirm("Uninstall Shinigami and restore the stock bar", args.yes)
+
+    with PluginTransaction(
+        paths, runtime, restart_on_reconcile=True
+    ) as transaction:
+        transaction.stop_shell()
+        current = transaction.refresh_config_after_stop()
+        desired = desired_for(current)
+        transaction.write_config(encode_config(desired))
+        runtime.restart_shell()
+        transaction.mark_shell_started()
+        remove_picker_menu_extension(transaction, runtime, state)
+        transaction.stage_removal(specs)
+        transaction.stage_removal_ids(retired_plugin_ids)
+        runtime.rescan()
+        runtime.verify_uninstall(set(plugin_ids))
+        transaction.finish(None, archive_previous=False)
+
+    leftovers: dict[Path, str] = {}
+    for directory in (paths.state_dir, paths.cache_dir):
+        try:
+            if directory.is_dir():
+                shutil.rmtree(directory)
+        except OSError as error:
+            leftovers[directory] = f"cleanup failed: {error}"
+        try:
+            directory.lstat()
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            leftovers[directory] = f"cannot verify removal: {error}"
+        else:
+            leftovers.setdefault(directory, "directory remains")
+    menu = paths.menu_extension_file
+    try:
+        menu.lstat()
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        leftovers[menu] = f"cannot verify routing removal: {error}"
+    else:
+        try:
+            payload = _read_bounded_regular_path(menu, "Omarchy menu extension")
+            if START_MARKER.encode() in payload or END_MARKER.encode() in payload:
+                leftovers[menu] = "Shinigami picker routing markers remain"
+        except (OSError, TransactionError) as error:
+            leftovers[menu] = f"cannot verify routing removal: {error}"
+    for path, reason in leftovers.items():
+        remedy = (
+            "remove only the Shinigami picker routing start/end block from this file"
+            if path == menu else
+            "remove this Shinigami-owned directory after confirming the stock bar is active"
+        )
+        print(
+            f"shinigami-suite: uninstall incomplete: {path}: {reason}; "
+            "re-run uninstall --yes from the same checkout if install.json remains, "
+            f"or manually {remedy}.",
+            file=sys.stderr,
+        )
+    if leftovers:
+        return 1
+    print("Uninstalled Shinigami and restored the stock Omarchy bar.")
+    return 0
+
+
+def command_status_with_admission(suite: Suite, paths: RuntimePaths) -> int:
+    try:
+        preflight_lifecycle_state(paths, suite)
+    except UnsupportedInstallIdentity as error:
+        print("shinigami-suite: installed identity is unsupported", file=sys.stderr)
+        print(
+            "shinigami-suite: supported identity labels: "
+            + ", ".join(error.supported_labels),
+            file=sys.stderr,
+        )
+        print(
+            "shinigami-suite: diagnostic is read-only and is not authorization; "
+            "no recovery or mutation was attempted",
+            file=sys.stderr,
+        )
+        print("shinigami-suite: identity diagnostic:", file=sys.stderr)
+        print(
+            json.dumps(error.diagnostic, indent=2, sort_keys=True),
+            file=sys.stderr,
+        )
+        return 1
+    except AdmissionError as error:
+        print(
+            "shinigami-suite: status admission refused; malformed, unsafe, "
+            "ambiguous, or unsupported state was not inspected further; "
+            "no recovery or mutation was attempted",
+            file=sys.stderr,
+        )
+        reason = str(error)
+        # Only format the existing preflight result: never inspect refused
+        # state again. Keep authority paths redacted, as in other status errors.
+        rendered = reason
+        for root, label in ((paths.state_dir, "<state>"),
+                            (paths.plugin_dir, "<plugins>"),
+                            (suite.root, "<suite>")):
+            rendered = rendered.replace(str(root), label)
+        print(f"shinigami-suite: refusal reason: {rendered}", file=sys.stderr)
+        plugin_ids = sorted(set(re.findall(
+            re.escape(str(paths.plugin_dir) + "/")
+            + r"([A-Za-z0-9][A-Za-z0-9._-]{0,199})(?=/|$)", reason,
+        )))
+        if plugin_ids:
+            # The existing combined check does not distinguish these causes.
+            # Do not invent a diagnosis or rescan to disambiguate it.
+            combined = reason.startswith("live plugin marker or payload")
+            labels = ("Locally modified", "Ownership mismatch") if combined else (
+                "Locally modified" if "payload" in reason else "Ownership mismatch",
+            )
+            qualifier = " (possible; preflight reports marker or payload mismatch)" if combined else ""
+            for label in labels:
+                print(f"{label}: {', '.join(plugin_ids)}{qualifier}", file=sys.stderr)
+        return 1
+    return command_status(suite, paths)
+
+
+def catalog_status_warning(suite: Suite, paths: RuntimePaths) -> str:
+    """One PID-bound, read-only helper read; no separate listPlugins scan."""
+    runtime = OmarchyRuntime(paths.omarchy_root)
+    try:
+        instances = runtime.shell_instances()
+        if len(instances) != 1 or type(instances[0].get("pid")) is not int or instances[0]["pid"] <= 1:
+            return "process-identity"
+        helper = suite.root / "shinigami.control-center/manager/shinigami-native-catalog"
+        result = runtime.run([sys.executable, "-I", "-S", str(helper),
+            "--shell", str(paths.omarchy_root / "shell"), "--pid", str(instances[0]["pid"])],
+            timeout=8, check=False)
+        if result.returncode:
+            code = result.stderr.strip()
+            return code if re.fullmatch(r"[a-z][a-z-]{0,63}", code) else "read-failed"
+        rows = json.loads(result.stdout)
+        if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+            return "catalog-shape"
+        codes = {row["catalogIssue"] for row in rows if "catalogIssue" in row}
+        if any(not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z-]{0,63}", code) for code in codes):
+            return "catalog-shape"
+        return ", ".join(sorted(codes))
+    except (RuntimeFailure, ValueError, TypeError):
+        return "ipc-failed"
+
+
+def command_status(suite: Suite, paths: RuntimePaths) -> int:
+    state_path = install_state_file(paths)
+    state: dict[str, Any] | None = None
+    if state_path.is_file():
+        try:
+            state = load_install_state(paths, suite)
+        except CliError as error:
+            print(f"State: invalid ({error})")
+            return 1
+    package = suite.package_metadata()
+    print(
+        "Suite payload: "
+        f"{suite.version} ({'package ' + package['packageName'] if package else 'source checkout'}; "
+        f"{suite.revision()})"
+    )
+    if state is None:
+        if legacy_install_state_file(paths).exists():
+            print("Install state: legacy QS Rise detected; run migrate")
+            return 1
+        print("Install state: not installed")
+        return 0
+    print(
+        "Install state: "
+        f"{state.get('suiteVersion')} ({state.get('sourceRevision')})"
+    )
+    if state.get("installOrigin") == "package":
+        print(
+            "Staged from package: "
+            f"{state.get('packageName')} {state.get('packageVersion')}"
+        )
+    else:
+        print(f"Staged from checkout: {state.get('sourceRoot', 'unknown')}")
+    print(f"Profile: {state.get('profile')}")
+    missing: list[str] = []
+    unmanaged: list[str] = []
+    modified: list[str] = []
+    pending_retirement: list[str] = []
+    for plugin_id in state["plugins"]:
+        target = paths.plugin_dir / plugin_id
+        if plugin_id in suite.retired_plugins:
+            pending_retirement.append(plugin_id)
+            if target.exists() and not is_managed_target(target, plugin_id):
+                unmanaged.append(plugin_id)
+            elif target.exists():
+                try:
+                    actual_digest = plugin_payload_digest(target)
+                except ContractError:
+                    modified.append(plugin_id)
+                else:
+                    if actual_digest != state["pluginDigests"][plugin_id]:
+                        modified.append(plugin_id)
+            continue
+        if not target.exists():
+            missing.append(plugin_id)
+        elif not is_managed_target(target, plugin_id):
+            unmanaged.append(plugin_id)
+        else:
+            try:
+                actual_digest = suite.plugins[plugin_id].payload_digest(target)
+            except ContractError:
+                modified.append(plugin_id)
+            else:
+                if actual_digest != state["pluginDigests"][plugin_id]:
+                    modified.append(plugin_id)
+    print(f"Managed plugins: {len(state['plugins']) - len(missing) - len(unmanaged)}")
+    if missing:
+        print(f"Missing: {', '.join(missing)}")
+    if unmanaged:
+        print(f"Ownership mismatch: {', '.join(unmanaged)}")
+    if modified:
+        print(f"Locally modified: {', '.join(modified)}")
+    if pending_retirement:
+        print(f"Pending retirement: {', '.join(pending_retirement)}")
+    try:
+        config, _ = read_config(paths.config_file, paths.defaults_file)
+        if state.get("settingsStorageVersion") == 1:
+            validate_state_settings(config)
+        bar = config.get("bar") if isinstance(config.get("bar"), dict) else {}
+        print(f"Configured bar: {bar.get('id', 'omarchy.bar')}")
+        profile_id = str(state.get("profile") or "default")
+        drift = (
+            external_activation_drift(config, suite, profile_id)
+            if external_activation(state, config)
+            else activation_drift(
+                config,
+                suite,
+                profile_id,
+                str(state.get("activeBar") or "shinigami.bar"),
+            )
+        )
+        if drift:
+            print(f"Configuration drift: {'; '.join(drift)}")
+    except ConfigError as error:
+        print(f"Config: invalid ({error})")
+        print("Repair with: shinigami-suite repair")
+        return 1
+    catalog_issue = catalog_status_warning(suite, paths)
+    if catalog_issue:
+        print(f"Warning: plugin-catalog ({catalog_issue})")
+    unhealthy = bool(
+        missing or unmanaged or modified or pending_retirement or drift
+    )
+    if unhealthy:
+        print("Repair with: shinigami-suite repair")
+    return 1 if unhealthy else 0
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="shinigami-suite",
+        description="Install and update the Shinigami Omarchy plugin suite transactionally.",
+    )
+    subparsers = result.add_subparsers(dest="command", required=True)
+
+    install = subparsers.add_parser("install", help="install and activate Shinigami")
+    install.add_argument("--profile", default="default")
+    install.add_argument(
+        "--no-activate",
+        action="store_true",
+        help="keep the currently configured bar",
+    )
+    install.add_argument(
+        "--keep-layout",
+        action="store_true",
+        help="preserve the current bar widget layout (requires --no-activate)",
+    )
+    install.add_argument("--dry-run", action="store_true")
+    install.add_argument("--yes", "-y", action="store_true")
+
+    migrate = subparsers.add_parser(
+        "migrate", help="migrate a suite-managed QS Rise install to Shinigami"
+    )
+    migrate.add_argument("--dry-run", action="store_true")
+    migrate.add_argument("--yes", "-y", action="store_true")
+
+    update = subparsers.add_parser("update", help="update the installed plugin set")
+    update.add_argument("--dry-run", action="store_true")
+    update.add_argument("--yes", "-y", action="store_true")
+    update.add_argument(
+        "--allow-downgrade",
+        action="store_true",
+        help="stage an intentionally installed older package payload",
+    )
+
+    repair = subparsers.add_parser(
+        "repair",
+        help="restore the complete suite payload and activate its managed layout",
+    )
+    repair.add_argument("--dry-run", action="store_true")
+    repair.add_argument("--yes", "-y", action="store_true")
+    repair.add_argument(
+        "--allow-downgrade",
+        action="store_true",
+        help="repair from an intentionally installed older package payload",
+    )
+
+    activate = subparsers.add_parser(
+        "activate", help="activate Shinigami and restore its managed layout"
+    )
+    activate.add_argument("--dry-run", action="store_true")
+    activate.add_argument("--yes", "-y", action="store_true")
+
+    deactivate = subparsers.add_parser(
+        "deactivate",
+        help="restore the stock Omarchy bar while retaining Shinigami",
+    )
+    deactivate.add_argument("--dry-run", action="store_true")
+    deactivate.add_argument("--yes", "-y", action="store_true")
+    deactivate.add_argument(
+        "--keep-layout",
+        action="store_true",
+        help="keep Shinigami widgets in the stock bar layout",
+    )
+
+    uninstall = subparsers.add_parser("uninstall", help="remove Shinigami")
+    uninstall.add_argument("--keep-settings", action="store_true")
+    uninstall.add_argument("--dry-run", action="store_true")
+    uninstall.add_argument("--yes", "-y", action="store_true")
+
+    subparsers.add_parser("status", help="show installed suite state")
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        suite = Suite.load(repository_root())
+        paths = RuntimePaths.from_environment()
+        paths.validate()
+        runtime = OmarchyRuntime(paths.omarchy_root)
+        if args.command == "status":
+            return command_status_with_admission(suite, paths)
+
+        allow_payload_repair = args.command == "repair"
+        with SuiteLock(paths.lock_file):
+            preflight_lifecycle_state(
+                paths,
+                suite,
+                allow_pending_recovery=True,
+                allow_payload_repair=allow_payload_repair,
+            )
+            if args.command in {"install", "migrate", "update", "repair"}:
+                # Reject an unbound target checkout/package before interrupted
+                # recovery or any requested payload mutation can run.
+                require_current_payload_identity(suite)
+            recovered = recover_transactions(paths, runtime, suite=suite)
+            if recovered:
+                # Recovery can legitimately replace exposed payload or commit
+                # state. Require the resulting live identity before the user's
+                # requested mutation proceeds.
+                preflight_lifecycle_state(
+                    paths,
+                    suite,
+                    allow_payload_repair=allow_payload_repair,
+                )
+                print(f"Recovered {recovered} interrupted Shinigami transaction(s).")
+            if args.command == "install":
+                return command_install(args, suite, paths, runtime)
+            if args.command == "migrate":
+                return command_migrate(args, suite, paths, runtime)
+            if args.command == "update":
+                return command_update(args, suite, paths, runtime)
+            if args.command == "repair":
+                return command_repair(args, suite, paths, runtime)
+            if args.command == "activate":
+                return command_activate(args, suite, paths, runtime)
+            if args.command == "deactivate":
+                return command_deactivate(args, suite, paths, runtime)
+            if args.command == "uninstall":
+                return command_uninstall(args, suite, paths, runtime)
+        raise CliError(f"unsupported command: {args.command}")
+    except (
+        AdmissionError,
+        CliError,
+        ConfigError,
+        ContractError,
+        RuntimeFailure,
+        TransactionError,
+    ) as error:
+        print(f"shinigami-suite: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

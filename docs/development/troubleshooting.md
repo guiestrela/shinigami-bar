@@ -1,0 +1,107 @@
+# Troubleshooting
+
+Status: user and maintainer reference
+
+## Shinigami does not appear
+
+Run:
+
+```bash
+./scripts/shinigami-suite status
+omarchy plugin list
+```
+
+If Shinigami is installed but inactive:
+
+```bash
+./scripts/shinigami-suite activate --dry-run
+./scripts/shinigami-suite activate
+```
+
+Do not use `omarchy plugin add` on the repository root. It is a 27-plugin suite,
+not one root plugin.
+
+## A Shinigami plugin was removed or disabled individually
+
+The generic Omarchy plugin menu manages one plugin root at a time and does not
+know Shinigami's suite dependencies. Restore the complete suite:
+
+```bash
+./scripts/shinigami-suite status
+./scripts/shinigami-suite repair --dry-run
+./scripts/shinigami-suite repair
+```
+
+Repair is transactional and refuses foreign replacement targets. Do not try to
+recreate missing suite directories by hand.
+
+## The Omarchy bar is active
+
+Open Control Center **Bars** and select Shinigami, or run:
+
+```bash
+./scripts/shinigami-suite activate
+```
+
+If `omarchy bar defaults` was used, activation restores Shinigami's managed layout.
+Canonical settings in the State service entry survive that command. Native
+per-plugin disable/removal of State does delete its settings; repair cannot
+reconstruct deleted personal values and must not revive retired storage.
+
+## A panel is misplaced or detached
+
+Close and reopen the panel once, then record:
+
+- the invoking widget and panel;
+- Top or Bottom bar placement;
+- output resolution and scale;
+- whether the bar, screen, theme, DPMS, or screensaver state changed;
+- the current Quickshell log and a screenshot.
+
+Panels should close when the bar is hidden for an idle or screensaver
+transition. A panel that remains open with a lost anchor is a product bug.
+
+## An update is refused
+
+`shinigami-suite update` refuses:
+
+- inactive or configuration-drifted installations;
+- unmanaged or foreign plugin directories;
+- symlinked payloads and special files;
+- unsafe manifest entry points;
+- invalid or inconsistent install state.
+
+Run `status` and resolve the reported drift. Use `activate` before `update` when
+the suite is intentionally installed but inactive. Use `repair` when payloads
+are missing, modified, ownership-mismatched, or were disabled individually.
+
+## An operation was interrupted
+
+Keep the state directory intact and rerun the intended suite command.
+Mutating commands recover unfinished transactions before starting new work.
+Do not delete transaction directories or ownership markers manually.
+
+## A live QML test cannot reach Wayland
+
+Live tests need the validation system's real user runtime, Wayland display, and Hyprland
+instance. A sandbox or plain SSH session without those environment values can
+fail even when the component is correct.
+
+Run component contracts through the repository test scripts. For real-session
+inspection, use the environment of the validation system's running Quickshell process and
+confirm that only one production shell process remains.
+
+## Collect diagnostics
+
+Useful read-only checks:
+
+```bash
+./scripts/shinigami-suite status
+omarchy plugin list
+pgrep -af quickshell
+hyprctl monitors -j
+qs log
+```
+
+Do not publish logs or screenshots before removing device addresses, SSIDs,
+notifications, usernames, paths, and account data.

@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "example.shinigami-test.commented-resources",
+  "name": "Shinigami commented resource integration fixture",
+  "version": "1.0.0",
+  "kinds": ["service"],
+  "entryPoints": {"service": "Service.qml"}
+}

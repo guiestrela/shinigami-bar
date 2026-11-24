@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $# == 6 && $1 == --system && $2 == get-property \
+  && $3 == net.hadess.PowerProfiles \
+  && $4 == /net/hadess/PowerProfiles \
+  && $5 == net.hadess.PowerProfiles && $6 == ActiveProfile ]] || exit 1
+IFS= read -r profile < "${SHINIGAMI_POWER_FIXTURE_STATE:?}"
+[[ $profile == balanced || $profile == power-saver || $profile == performance ]] || exit 1
+printf 's "%s"\n' "$profile"

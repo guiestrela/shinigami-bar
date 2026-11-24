@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.onedrive",
+  "name": "Shinigami OneDrive",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami OneDrive status widget, panel, and notification adapter.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami OneDrive",
+    "description": "OneDrive sync status with a standalone panel",
+    "category": "Utilities",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "onedrive",
+    "requires": [
+      "shinigami.state"
+    ],
+    "recommends": []
+  }
+}

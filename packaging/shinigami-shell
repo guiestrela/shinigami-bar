@@ -1,0 +1,14 @@
+#!/usr/bin/bash
+
+set -euo pipefail
+
+readonly shinigami_payload="/usr/share/shinigami-shell"
+readonly shinigami_lifecycle="$shinigami_payload/scripts/shinigami-suite"
+
+if [[ ! -x $shinigami_lifecycle ]]; then
+  printf 'shinigami-shell: packaged lifecycle command is missing: %s\n' \
+    "$shinigami_lifecycle" >&2
+  exit 1
+fi
+
+exec "$shinigami_lifecycle" "$@"

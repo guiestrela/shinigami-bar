@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "packageName": "shinigami-shell",
+  "requiredPackages": [
+    "omarchy",
+    "quickshell",
+    "python",
+    "python-dbus",
+    "iputils",
+    "glib2",
+    "systemd",
+    "jq",
+    "curl",
+    "networkmanager",
+    "omarchy-power-profiles-daemon",
+    "upower",
+    "xdg-utils",
+    "libnotify",
+    "wl-clipboard",
+    "ttf-material-symbols-variable",
+    "ttf-jetbrains-mono-nerd-basic",
+    "noto-fonts-cjk",
+    "adwaita-fonts"
+  ],
+  "requiredCommands": {
+    "python3": "python",
+    "ping": "iputils",
+    "gdbus": "glib2",
+    "busctl": "systemd",
+    "jq": "jq",
+    "curl": "curl",
+    "nmcli": "networkmanager",
+    "powerprofilesctl": "omarchy-power-profiles-daemon",
+    "upower": "upower",
+    "xdg-open": "xdg-utils",
+    "notify-send": "libnotify",
+    "wl-copy": "wl-clipboard"
+  },
+  "requiredHostCommands": {
+    "omarchy-bluetooth-power": "Bluetooth radio power and persistent rfkill policy",
+    "omarchy-bluetooth-device": "Retained Beta.13 Bluetooth device mutation path",
+    "omarchy-audio-output-set-default": "Retained Bluetooth audio-route compatibility path"
+  },
+  "requiredFonts": {
+    "Material Symbols Rounded": "ttf-material-symbols-variable",
+    "Material Symbols Sharp": "ttf-material-symbols-variable",
+    "JetBrainsMono Nerd Font": "ttf-jetbrains-mono-nerd-basic",
+    "Noto Sans CJK JP": "noto-fonts-cjk",
+    "Adwaita Mono": "adwaita-fonts"
+  },
+  "optionalPackages": {
+    "cava": "live media spectrum",
+    "ffmpegthumbnailer": "video picker thumbnails",
+    "imagemagick": "additional media thumbnails",
+    "btop": "battery panel system monitor action",
+    "nvidia-utils": "NVIDIA GPU telemetry",
+    "git": "source-checkout diagnostics and migration"
+  }
+}

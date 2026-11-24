@@ -1,0 +1,691 @@
+from __future__ import annotations
+
+import copy
+import json
+import math
+import os
+import tempfile
+from pathlib import Path
+from typing import Any, Callable
+
+from .model import PluginSpec, ProfileSpec
+
+
+REGIONS = ("left", "center", "right")
+NATIVE_SECTIONS = ("left", "centerBegin", "center", "centerEnd", "right", "tray")
+LEGACY_PLUGIN_PREFIX = "hancore.qsrise"
+PLUGIN_PREFIX = "shinigami"
+OMARCHY_PLUGIN_PREFIX = "omarchy."
+IDENTITY_VERSION = 3
+STATE_PLUGIN_ID = "shinigami.state"
+STATE_STORAGE_SCHEMA = "shinigamiStateSchemaVersion"
+RETAINED_LAYOUT = "shinigamiRetainedLayout"
+
+
+class ConfigError(RuntimeError):
+    pass
+
+
+def _object(value: Any) -> dict[str, Any]:
+    return copy.deepcopy(value) if isinstance(value, dict) else {}
+
+
+def native_sections(layout: dict[str, Any]) -> tuple[str, ...]:
+    """Canonical coordinates; absent extension sections are valid legacy input."""
+    if any(not isinstance(layout[section], list)
+           for section in NATIVE_SECTIONS if section in layout):
+        raise ConfigError("invalid bar layout region")
+    return tuple(section for section in NATIVE_SECTIONS
+                 if section in REGIONS or section in layout)
+
+
+def legacy_center_anchor(bar: dict[str, Any]) -> bool:
+    layout = bar.get("layout", {})
+    return "centerAnchor" in bar and not any(section in layout for section in ("centerBegin", "centerEnd"))
+
+
+def _array(value: Any) -> list[Any]:
+    return copy.deepcopy(value) if isinstance(value, list) else []
+
+
+def entry_id(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return str(value.get("id") or "")
+    return ""
+
+
+def _migrated_identifier(value: str) -> str:
+    if value == LEGACY_PLUGIN_PREFIX or value.startswith(LEGACY_PLUGIN_PREFIX + "."):
+        return PLUGIN_PREFIX + value[len(LEGACY_PLUGIN_PREFIX):]
+    return value
+
+
+def _migrated_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        migrated: dict[str, Any] = {}
+        for key, item in value.items():
+            next_key = _migrated_identifier(key) if isinstance(key, str) else key
+            if next_key in migrated:
+                raise ConfigError(
+                    f"legacy configuration collides after migration: {next_key}"
+                )
+            migrated[next_key] = _migrated_value(item)
+        return migrated
+    if isinstance(value, list):
+        return [_migrated_value(item) for item in value]
+    if isinstance(value, str):
+        return _migrated_identifier(value)
+    return copy.deepcopy(value)
+
+
+def migrate_legacy_config(config: dict[str, Any]) -> dict[str, Any]:
+    """Move the private QS Rise namespace to Shinigami without losing settings."""
+    result = _normalize(config)
+    bar = result["bar"]
+
+    if "qsrise" in bar and "shinigami" in bar:
+        raise ConfigError(
+            "shell config contains both bar.qsrise and bar.shinigami; "
+            "refusing an ambiguous migration"
+        )
+    if "qsrise" in bar:
+        bar["shinigami"] = _migrated_value(bar.pop("qsrise"))
+
+    if isinstance(bar.get("id"), str):
+        bar["id"] = _migrated_identifier(bar["id"])
+    if legacy_center_anchor(bar) and isinstance(bar.get("centerAnchor"), str):
+        bar["centerAnchor"] = _migrated_identifier(bar["centerAnchor"])
+    if bar.get("style") == "qsrise":
+        bar["style"] = "shinigami"
+
+    for region in native_sections(bar["layout"]):
+        bar["layout"][region] = [
+            _migrated_value(entry) for entry in bar["layout"][region]
+        ]
+    result["plugins"] = [_migrated_value(entry) for entry in result["plugins"]]
+    return result
+
+
+def validate_state_envelope(config: dict[str, Any]) -> None:
+    """Match the runtime's shell envelope before any normalizing migration."""
+    if (not isinstance(config, dict) or type(config.get("version")) not in (int, float)
+            or config["version"] != 1 or not isinstance(config.get("plugins"), list)
+            or len(config["plugins"]) > 512 or not isinstance(config.get("bar"), dict)
+            or not isinstance(config["bar"].get("layout"), dict)
+            or any(not isinstance(config["bar"]["layout"].get(region), list) for region in REGIONS)):
+        raise ConfigError("invalid canonical State shell envelope")
+    native_sections(config["bar"]["layout"])
+
+
+def state_entry(config: dict[str, Any]) -> dict[str, Any] | None:
+    entries = config.get("plugins", [])
+    if not isinstance(entries, list):
+        raise ConfigError("invalid plugins array")
+    matches = [entry for entry in entries if entry_id(entry) == STATE_PLUGIN_ID]
+    if len(matches) > 1 or (matches and not isinstance(matches[0], dict)):
+        raise ConfigError("ambiguous State service entry")
+    if matches and (STATE_STORAGE_SCHEMA in matches[0] or "shinigami" in matches[0]):
+        validate_state_envelope(config)
+    bar = config.get("bar", {})
+    if not isinstance(bar, dict) or not isinstance(bar.get("layout", {}), dict):
+        raise ConfigError("invalid bar layout")
+    layout = bar.get("layout", {})
+    if any(entry_id(entry) == STATE_PLUGIN_ID
+           for region in native_sections(layout) for entry in layout.get(region, [])):
+        raise ConfigError("State service must not be a bar layout entry")
+    return matches[0] if matches else None
+
+
+def validate_state_settings(config: dict[str, Any]) -> dict[str, Any]:
+    """Validate canonical storage without creating, normalizing or migrating it."""
+    validate_state_envelope(config)
+    entry = state_entry(config)
+    # JSON's numeric 1 and 1.0 have the same meaning in the native/QML parser.
+    # Booleans and strings are not schema numbers.
+    if (entry is None or type(entry.get(STATE_STORAGE_SCHEMA)) not in (int, float)
+            or entry[STATE_STORAGE_SCHEMA] != 1
+            or not isinstance(entry.get("shinigami"), dict)
+            or type(entry["shinigami"].get("version")) not in (int, float)
+            or entry["shinigami"]["version"] != 1):
+        raise ConfigError("invalid canonical State settings; refusing legacy fallback")
+    return entry["shinigami"]
+
+
+def _rename_settings_key(owner: dict[str, Any], older: str, current: str) -> None:
+    if older not in owner:
+        return
+    if current in owner:
+        raise ConfigError(f"ambiguous stored settings: both {older} and {current}")
+    owner[current] = owner.pop(older)
+
+
+def _merge_display_widget(layout: dict[str, Any]) -> None:
+    old_id = "shinigami.brightness"
+    new_id = "shinigami.display-manager"
+    sections = native_sections(layout)
+    has_display_manager = any(
+        entry_id(widget) == new_id for section in sections
+        for widget in layout.get(section, [])
+    )
+    for section in sections:
+        if section not in layout:
+            continue
+        entries = []
+        for widget in layout[section]:
+            if entry_id(widget) != old_id:
+                entries.append(widget)
+            elif not has_display_manager:
+                entries.append(dict(widget, id=new_id) if isinstance(widget, dict) else new_id)
+                has_display_manager = True
+        layout[section] = entries
+
+
+def _migrate_shinigami_branding(config: dict[str, Any], entry: dict[str, Any]) -> None:
+    bar = config["bar"]
+    _rename_settings_key(bar, "shibumi", "shinigami")
+    _rename_settings_key(entry, "shibumi", "shinigami")
+    _rename_settings_key(entry, "shibumiStateSchemaVersion", STATE_STORAGE_SCHEMA)
+    _rename_settings_key(entry, "shibumiRetainedLayout", RETAINED_LAYOUT)
+
+    if bar.get("style") == "shibumi":
+        bar["style"] = "shinigami"
+
+    for owner in (bar, entry):
+        settings = owner.get("shinigami")
+        presentation = settings.get("presentation") if isinstance(settings, dict) else None
+        if isinstance(presentation, dict) and presentation.get("shellStyle") == "shibumi":
+            presentation["shellStyle"] = "shinigami"
+
+    retained = entry.get(RETAINED_LAYOUT)
+    layouts = [bar["layout"]]
+    if isinstance(retained, dict) and isinstance(retained.get("layout"), dict):
+        layouts.append(retained["layout"])
+    for layout in layouts:
+        _merge_display_widget(layout)
+        for region in native_sections(layout):
+            for widget in layout.get(region, []):
+                if isinstance(widget, dict):
+                    _rename_settings_key(widget, "shibumiModule", "shinigamiModule")
+
+
+def migrate_state_settings(config: dict[str, Any], *, import_legacy: bool = True) -> dict[str, Any]:
+    """One-way, drained lifecycle migration; runtime never writes bar.shinigami."""
+    state_entry(config)  # Reject ambiguity before normalization/deduplication.
+    result = _normalize(config)
+    entry = state_entry(result)
+    if entry is None:
+        entry = {"id": STATE_PLUGIN_ID}
+        result["plugins"].append(entry)
+    _migrate_shinigami_branding(result, entry)
+    if STATE_STORAGE_SCHEMA in entry or "shinigami" in entry:
+        validate_state_settings(result)
+    else:
+        legacy = result["bar"].get("shinigami", {"version": 1}) if import_legacy else {"version": 1}
+        version = legacy.get("version", 1) if isinstance(legacy, dict) else None
+        if not isinstance(legacy, dict) or not (
+                (type(version) in (int, float) and version == 1) or version == "1"):
+            raise ConfigError("unsupported legacy State settings")
+        entry[STATE_STORAGE_SCHEMA] = 1
+        entry["shinigami"] = copy.deepcopy(legacy)
+        entry["shinigami"]["version"] = 1
+    # Stock keeps legacy data inert; it is never a runtime source. Cleanup is
+    # allowed only when the suite Bar is selected in the lifecycle document.
+    if result["bar"].get("id") == "shinigami.bar":
+        result["bar"].pop("shinigami", None)
+    validate_state_settings(result)
+    return result
+
+
+def apply_identity_contract(config: dict[str, Any], *, migrate_storage: bool = True) -> dict[str, Any]:
+    """Migrate storage with the new payload; old-payload activation stays legacy."""
+    result = migrate_state_settings(config) if migrate_storage else _normalize(config)
+    settings = state_entry(result)["shinigami"] if migrate_storage else result["bar"].get("shinigami")
+    if not isinstance(settings, dict):
+        return result
+    try:
+        current_version = int(settings.get("identityVersion") or 0)
+    except (TypeError, ValueError):
+        current_version = 0
+    menu = settings.get("menu")
+    legacy_launcher = menu.get("launcher") if isinstance(menu, dict) else None
+    launcher = settings.get("launcher")
+    if not isinstance(launcher, dict) and isinstance(legacy_launcher, dict):
+        launcher = copy.deepcopy(legacy_launcher)
+        settings["launcher"] = launcher
+    if (
+        current_version < 2
+        and isinstance(launcher, dict)
+        and launcher.get("text") == "omarchy"
+    ):
+        launcher["text"] = "shinigami"
+    settings.pop("menu", None)
+    settings["identityVersion"] = IDENTITY_VERSION
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
+def _finite_json_float(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("non-finite JSON number")
+    return value
+
+
+def _finite_json_int(raw: str) -> int:
+    _finite_json_float(raw)  # QML numbers must remain finite even without an exponent.
+    return int(raw)
+
+
+def parse_config_bytes(
+    payload: bytes,
+    source: Path,
+    *,
+    user_config_exists: bool,
+) -> tuple[dict[str, Any], bool]:
+    """Parse already acquired config bytes with the canonical JSON rules."""
+    try:
+        raw = payload.decode("utf-8")
+        # Same parser budget as StateStorageModel; acquisition callers must
+        # impose their own byte and file-type bounds before invoking this.
+        if len(raw.encode("utf-16-le")) // 2 > 1048576:
+            raise ValueError("shell config exceeds State parser budget")
+        data = json.loads(raw, parse_constant=_reject_json_constant,
+                          parse_float=_finite_json_float, parse_int=_finite_json_int)
+    except (UnicodeError, ValueError) as error:
+        raise ConfigError(f"cannot read shell config {source}: {error}") from error
+    if not isinstance(data, dict):
+        raise ConfigError(f"shell config must be a JSON object: {source}")
+    if not user_config_exists:
+        # Host defaults provide a construction fallback, not a saved stock-bar
+        # transparency preference. Do not materialize that preference merely
+        # because Shinigami creates the first user shell configuration.
+        bar = data.get("bar")
+        if isinstance(bar, dict):
+            bar.pop("transparent", None)
+    return data, user_config_exists
+
+
+def read_config(path: Path, defaults_path: Path) -> tuple[dict[str, Any], bool]:
+    source = path if path.is_file() and path.stat().st_size > 0 else defaults_path
+    try:
+        payload = source.read_bytes()
+    except OSError as error:
+        raise ConfigError(f"cannot read shell config {source}: {error}") from error
+    return parse_config_bytes(
+        payload, source, user_config_exists=source == path
+    )
+
+
+def _normalize(config: dict[str, Any]) -> dict[str, Any]:
+    result = _object(config)
+    result["version"] = 1
+    result["bar"] = _object(result.get("bar"))
+    result["bar"]["layout"] = _object(result["bar"].get("layout"))
+    for region in native_sections(result["bar"]["layout"]):
+        result["bar"]["layout"][region] = _array(
+            result["bar"]["layout"].get(region)
+        )
+    result["plugins"] = _array(result.get("plugins"))
+    return result
+
+
+def _prune_missing_layout_plugins(layout: dict[str, list[Any]], managed_ids: set[str],
+                                  plugin_dir: Path) -> None:
+    try:
+        with os.scandir(plugin_dir) as rows:
+            installed = {row.name for row in rows if row.is_symlink()
+                         or row.is_dir(follow_symlinks=True)}
+    except OSError:
+        return
+    for region in native_sections(layout):
+        if region == "tray":
+            continue  # Deferred drawer entries are not inferred from visible payloads.
+        layout[region] = [
+            entry for entry in layout[region]
+            if not (plugin_id := entry_id(entry)) or plugin_id in managed_ids
+            or plugin_id.startswith(OMARCHY_PLUGIN_PREFIX) or plugin_id in installed
+        ]
+
+
+def retained_layout(config: dict[str, Any]) -> dict[str, Any] | None:
+    """Lifecycle-only round-trip record; never infer layout from a stock bar."""
+    entry = state_entry(config)
+    if entry is None or RETAINED_LAYOUT not in entry:
+        return None
+    record = entry[RETAINED_LAYOUT]
+    if (not isinstance(record, dict) or set(record) != {"schemaVersion", "layout"}
+            or type(record.get("schemaVersion")) not in (int, float)
+            or record["schemaVersion"] != 1):
+        raise ConfigError("invalid retained Shinigami layout record")
+    layout = record["layout"]
+    if (not isinstance(layout, dict) or not set(REGIONS).issubset(layout)
+            or any(not isinstance(layout[r], list) for r in REGIONS)
+            or any(not (isinstance(entry, str) and entry
+                        or isinstance(entry, dict) and isinstance(entry.get("id"), str)
+                        and entry["id"])
+                   for r in native_sections(layout) for entry in layout.get(r, []))):
+        raise ConfigError("invalid retained Shinigami layout entries")
+    native_sections(layout)
+    validate_state_settings(config)
+    return copy.deepcopy(layout)
+
+
+def apply_profile(
+    config: dict[str, Any],
+    profile: ProfileSpec,
+    plugins: dict[str, PluginSpec],
+    plugin_dir: Path,
+) -> dict[str, Any]:
+    state_entry(config)
+    result = _normalize(config)
+    _merge_display_widget(result["bar"]["layout"])
+    managed_widget_ids = {
+        plugin_id for plugin_id, spec in plugins.items() if spec.is_bar_widget
+    }
+
+    saved_layout = retained_layout(config)
+    if saved_layout is not None and result["bar"].get("id") == profile.active_bar:
+        # An older release may have left the record behind; the active bar wins.
+        saved_layout = copy.deepcopy(result["bar"]["layout"])
+    if saved_layout is not None:
+        _merge_display_widget(saved_layout)
+        # Native listPlugins.enabled for a widget means placement (inBar), not
+        # first-party component availability. Use the freshly read host layout,
+        # including the post-drain reread, without requiring another live IPC.
+        enabled_widgets = {entry_id(entry) for region in native_sections(result["bar"]["layout"])
+                           for entry in result["bar"]["layout"][region]}
+        for region in native_sections(saved_layout):
+            if region == "tray":
+                continue  # Deferred drawer data is not our visible presentation.
+            saved_layout[region] = [entry for entry in saved_layout[region]
+                if entry_id(entry) in plugins or entry_id(entry) in enabled_widgets]
+    existing_entries: dict[str, Any] = {}
+    for region in native_sections(result["bar"]["layout"]):
+        for entry in result["bar"]["layout"][region]:
+            plugin_id = entry_id(entry)
+            if plugin_id in managed_widget_ids and plugin_id not in existing_entries:
+                existing_entries[plugin_id] = copy.deepcopy(entry)
+
+    preserved_ids = {
+        entry_id(entry) for section in native_sections(result["bar"]["layout"])
+        if section not in REGIONS for entry in result["bar"]["layout"][section]
+    }
+    imported: set[str] = set()
+    for region in REGIONS:
+        extras = []
+        for entry in result["bar"]["layout"][region]:
+            plugin_id = entry_id(entry)
+            if (plugin_id not in managed_widget_ids
+                    and not plugin_id.startswith(OMARCHY_PLUGIN_PREFIX)
+                    and (not plugin_id or plugin_id not in imported)):
+                extras.append(entry)
+                imported.add(plugin_id)
+        managed = [
+            copy.deepcopy(existing_entries.get(plugin_id, {"id": plugin_id}))
+            for plugin_id in profile.layout.get(region, ())
+            if plugin_id not in preserved_ids
+        ]
+        result["bar"]["layout"][region] = managed + extras
+
+    service_ids = set(profile.enable_services)
+    plugin_entries = [
+        entry for entry in result["plugins"] if entry_id(entry) not in plugins
+    ]
+    existing_services = {
+        entry_id(entry): copy.deepcopy(entry)
+        for entry in result["plugins"]
+        if entry_id(entry) in service_ids
+    }
+    plugin_entries.extend(
+        existing_services.get(plugin_id, {"id": plugin_id})
+        for plugin_id in profile.enable_services
+    )
+    result["plugins"] = plugin_entries
+
+    result["bar"]["id"] = profile.active_bar
+    if legacy_center_anchor(result["bar"]):
+        result["bar"]["centerAnchor"] = "shinigami.center"
+    result["bar"]["style"] = "shinigami"
+    if result["bar"].get("position") not in ("top", "bottom"):
+        result["bar"]["position"] = "top"
+    if saved_layout is not None:
+        # Reinstall/reactivation restores the prior layout except explicitly
+        # disabled foreign widgets, never the profile plus stock extras. Consume
+        # only our sibling field before publication and shell start.
+        result["bar"]["layout"] = saved_layout
+        state_entry(result).pop(RETAINED_LAYOUT)
+    else:
+        _prune_missing_layout_plugins(result["bar"]["layout"], set(plugins), plugin_dir)
+    return result
+
+
+def reconcile_profile_services(
+    config: dict[str, Any],
+    profile: ProfileSpec,
+) -> dict[str, Any]:
+    """Enable newly introduced suite services without rewriting user layout."""
+    result = _normalize(config)
+    # Installed/external-mode reconciliation must not leave a replayable record.
+    if (entry := state_entry(result)) is not None:
+        entry.pop(RETAINED_LAYOUT, None)
+    enabled = {entry_id(entry) for entry in result["plugins"]}
+    for plugin_id in profile.enable_services:
+        if plugin_id not in enabled:
+            result["plugins"].append({"id": plugin_id})
+            enabled.add(plugin_id)
+    return result
+
+
+def remove_plugin_ids(
+    config: dict[str, Any], plugin_ids: set[str] | tuple[str, ...]
+) -> dict[str, Any]:
+    """Remove retired Shinigami roots from services and any stale bar layout."""
+    result = _normalize(config)
+    retired = set(plugin_ids)
+    for region in native_sections(result["bar"]["layout"]):
+        result["bar"]["layout"][region] = [
+            entry
+            for entry in result["bar"]["layout"][region]
+            if entry_id(entry) not in retired
+        ]
+    result["plugins"] = [
+        entry for entry in result["plugins"] if entry_id(entry) not in retired
+    ]
+    return result
+
+
+def reconcile_profile_additions(
+    config: dict[str, Any],
+    profile: ProfileSpec,
+    previous_plugin_ids: set[str],
+    plugins: dict[str, PluginSpec],
+) -> dict[str, Any]:
+    """Add only newly introduced profile widgets without reordering user state."""
+    result = _normalize(config)
+    present = {
+        entry_id(entry)
+        for region in native_sections(result["bar"]["layout"])
+        for entry in result["bar"]["layout"][region]
+    }
+    introduced = set(profile.install) - previous_plugin_ids
+    for region in REGIONS:
+        for plugin_id in profile.layout[region]:
+            spec = plugins.get(plugin_id)
+            if plugin_id not in introduced or plugin_id in present \
+                    or spec is None or not spec.is_bar_widget:
+                continue
+            result["bar"]["layout"][region].append({"id": plugin_id})
+            present.add(plugin_id)
+    return result
+
+
+def select_omarchy_image_picker(config: dict[str, Any]) -> dict[str, Any]:
+    """Route theme/wallpaper selection back to Quattro on the stock bar."""
+    result = _normalize(config)
+    entry = state_entry(result)
+    shinigami = entry.get("shinigami") if entry and entry.get(STATE_STORAGE_SCHEMA) == 1 else result["bar"].get("shinigami")
+    if isinstance(shinigami, dict):
+        picker = shinigami.get("picker")
+        if not isinstance(picker, dict):
+            picker = {}
+            shinigami["picker"] = picker
+        picker["imageStyle"] = "omarchy"
+    return result
+
+
+def remove_suite(
+    config: dict[str, Any],
+    plugins: dict[str, PluginSpec],
+    plugin_dir: Path,
+    active_bar: str,
+    default_center_anchor: str,
+    keep_settings: bool,
+    preserve_ids: set[str] | None = None,
+    restore_bar: dict[str, Any] | None = None,
+    *, retain_layout: bool = False,
+) -> dict[str, Any]:
+    retained_layout(config)  # Refuse malformed/colliding lifecycle metadata.
+    result = _normalize(config)
+    current_bar = copy.deepcopy(result["bar"])
+    if retain_layout and keep_settings and current_bar.get("id") == active_bar:
+        validate_state_settings(config)
+        entry = state_entry(result)
+        entry[RETAINED_LAYOUT] = {"schemaVersion": 1,
+                                  "layout": copy.deepcopy(current_bar["layout"])}
+        retained_layout(result)
+    elif not retain_layout and (entry := state_entry(result)) is not None:
+        entry.pop(RETAINED_LAYOUT, None)
+    retained_entry = copy.deepcopy(state_entry(result)) if keep_settings else None
+    plugin_ids = set(plugins)
+    preserved = preserve_ids or set()
+    for region in native_sections(result["bar"]["layout"]):
+        if region == "tray":
+            continue  # Retained stock-only drawer data is not a suite presentation.
+        result["bar"]["layout"][region] = [
+            entry
+            for entry in result["bar"]["layout"][region]
+            if entry_id(entry) not in plugin_ids
+            or entry_id(entry) in preserved
+        ]
+    result["plugins"] = [
+        entry
+        for entry in result["plugins"]
+        if entry_id(entry) not in plugin_ids
+        or entry_id(entry) in preserved
+    ]
+    # A kept settings entry is inert when its payload is absent. Preserve the
+    # complete envelope, not just settings; normal uninstall removes it.
+    if retained_entry is not None and not any(
+            entry_id(entry) == STATE_PLUGIN_ID for entry in result["plugins"]):
+        result["plugins"].append(retained_entry)
+    if result["bar"].get("id") == active_bar and restore_bar is not None:
+        restored = _object(restore_bar)
+        restored_layout = _object(restored.get("layout"))
+        filtered_layout = result["bar"]["layout"]
+        # Do not tidy existing stock duplicates. Only additions are globally
+        # unique, including repeated IDs within the additions themselves.
+        sections = native_sections({**restored_layout, **filtered_layout})
+        native_sections(restored_layout)
+        known = {entry_id(entry) for region in sections
+                 for entry in _array(restored_layout.get(region))}
+        for region in sections:
+            entries = _array(restored_layout.get(region))
+            for entry in filtered_layout.get(region, []):
+                plugin_id = entry_id(entry)
+                if plugin_id and plugin_id not in known:
+                    entries.append(copy.deepcopy(entry))
+                    known.add(plugin_id)
+            restored_layout[region] = entries
+        for section in NATIVE_SECTIONS:
+            if section not in REGIONS and section in filtered_layout:
+                restored_layout[section] = copy.deepcopy(filtered_layout[section])
+        restored["layout"] = restored_layout
+        result["bar"] = restored
+        _prune_missing_layout_plugins(restored_layout, plugin_ids, plugin_dir)
+        if "transparent" in current_bar:
+            result["bar"]["transparent"] = copy.deepcopy(
+                current_bar["transparent"]
+            )
+        else:
+            result["bar"].pop("transparent", None)
+        if retained_entry is not None and retained_entry.get(STATE_STORAGE_SCHEMA) == 1:
+            result["bar"].pop("shinigami", None)
+        elif keep_settings and isinstance(current_bar.get("shinigami"), dict):
+            result["bar"]["shinigami"] = copy.deepcopy(current_bar["shinigami"])
+    elif result["bar"].get("id") == active_bar:
+        result["bar"].pop("id", None)
+    if legacy_center_anchor(result["bar"]) and result["bar"].get("centerAnchor") == "shinigami.center":
+        if default_center_anchor:
+            result["bar"]["centerAnchor"] = default_center_anchor
+        else:
+            result["bar"].pop("centerAnchor", None)
+    if result["bar"].get("style") == "shinigami":
+        result["bar"].pop("style", None)
+    if not keep_settings:
+        result["bar"].pop("shinigami", None)
+    if retained_layout(result) is not None:
+        # The snapshot plus restored stock bar must fit the canonical parser.
+        parse_config_bytes(encode_config(result), Path("<retained-layout>"),
+                           user_config_exists=True)
+    return result
+
+
+def encode_config(config: dict[str, Any]) -> bytes:
+    return (json.dumps(config, indent=2, sort_keys=True, allow_nan=False) + "\n").encode("utf-8")
+
+
+def _fsync_directory(
+    path: Path,
+    *,
+    on_durable: Callable[[], None] | None = None,
+) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+        if on_durable is not None:
+            on_durable()
+    finally:
+        os.close(descriptor)
+
+
+def _durable_mkdir(path: Path) -> None:
+    missing: list[Path] = []
+    current = path
+    while not current.exists():
+        missing.append(current)
+        if current.parent == current:
+            raise ConfigError(f"cannot create configuration directory: {path}")
+        current = current.parent
+    if not current.is_dir():
+        raise ConfigError(f"configuration parent is not a directory: {current}")
+    for directory in reversed(missing):
+        directory.mkdir()
+        _fsync_directory(directory)
+        _fsync_directory(directory.parent)
+
+
+def atomic_write(
+    path: Path,
+    payload: bytes,
+    mode: int = 0o600,
+    *,
+    on_durable: Callable[[], None] | None = None,
+) -> None:
+    _durable_mkdir(path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+        _fsync_directory(path.parent, on_durable=on_durable)
+    finally:
+        temporary.unlink(missing_ok=True)

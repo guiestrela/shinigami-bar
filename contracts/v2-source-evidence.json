@@ -1,0 +1,246 @@
+{
+  "schemaVersion": 1,
+  "referenceBaseline": "contracts/baselines/quickshell-dots-d0896fc-v2-deec8103.json",
+  "referenceRootId": "v2",
+  "sourceGlobs": ["*.qml", "*.js", "modules/*.qml", "panels/*.qml", "panels/*.js"],
+  "features": [
+    {
+      "id": "shell-host-lifecycle",
+      "strategy": "adapt",
+      "sources": ["shell.qml", "VariantRoot.qml"],
+      "implementation": ["shinigami.bar/Bar.qml", "shinigami.bar/core/WindowRecovery.qml", "scripts/shinigami_suite/runtime.py"],
+      "evidence": ["tests/bar-host-registry-smoke.qml", "tests/shinigami-suite-quattro-runtime.sh"]
+    },
+    {
+      "id": "bar-slot-layout",
+      "strategy": "adapt",
+      "sources": ["BarSlot.qml"],
+      "implementation": ["shinigami.bar/core/GroupSlot.qml", "shinigami.bar/core/WidgetSlot.qml", "shinigami.bar/core/LayoutController.qml"],
+      "evidence": ["tests/group-renderer-regression.qml", "tests/shinigami-config-regression.qml"]
+    },
+    {
+      "id": "state-and-theme",
+      "strategy": "adapt",
+      "sources": ["Theme.qml", "Palette.js"],
+      "implementation": ["shinigami.state/ShinigamiConfig.js", "shinigami.state/Service.qml", "shinigami.state/ThemePalette.qml"],
+      "evidence": ["tests/state-service-smoke.qml", "tests/shinigami-config-regression.qml", "tests/theme-palette-runtime-regression.sh"]
+    },
+    {
+      "id": "icon-semantics",
+      "strategy": "adapt",
+      "sources": ["IconMap.js"],
+      "implementation": ["shinigami.state/lib/presentation/IconText.qml", "shinigami.control-center/ControlSettings.qml"],
+      "evidence": ["tests/group-renderer-regression.qml", "tests/control-center-smoke.qml"]
+    },
+    {
+      "id": "power-actions",
+      "strategy": "adapt",
+      "sources": ["OmarchyPower.js"],
+      "implementation": ["shinigami.power-state/Service.qml", "shinigami.power-profile/PowerProfilePanel.qml"],
+      "evidence": ["tests/power-plugins-regression.sh", "tests/power-plugins-smoke.qml"]
+    },
+    {
+      "id": "connected-surfaces",
+      "strategy": "port",
+      "sources": ["modules/AiBarInset.qml", "modules/AiPanelSurface.qml", "modules/ConnectedBarInset.qml", "modules/ConnectedPanelSurface.qml", "modules/PanelPointer.qml"],
+      "implementation": ["shinigami.bar/styles/shinigami/RunChrome.qml", "shared/presentation/ShinigamiPanel.qml"],
+      "evidence": ["tests/group-renderer-regression.qml", "tests/panel-surface-smoke.qml", "tests/panel-routing-regression.qml"]
+    },
+    {
+      "id": "control-center",
+      "strategy": "port",
+      "sources": ["modules/LauncherWidget.qml", "panels/ControlPanel.qml"],
+      "implementation": ["shinigami.control-center/BarWidget.qml", "shinigami.control-center/ControlCenterPanel.qml"],
+      "evidence": ["tests/control-center-regression.sh", "tests/control-center-smoke.qml"]
+    },
+    {
+      "id": "updates",
+      "strategy": "port",
+      "sources": ["modules/ArchUpdaterWidget.qml", "modules/UpdateWidget.qml", "panels/ArchUpdaterPanel.qml"],
+      "implementation": ["shinigami.update-center/BarWidget.qml", "shinigami.update-center/UpdateCenterPanel.qml", "shinigami.update-center/Service.qml"],
+      "evidence": ["tests/update-center-regression.sh", "tests/update-center-ui-smoke.qml"]
+    },
+    {
+      "id": "shell-update-lifecycle",
+      "strategy": "adapt",
+      "sources": ["panels/ShellUpdateTab.qml"],
+      "implementation": ["scripts/shinigami-suite", "scripts/shinigami_suite/cli.py", "scripts/shinigami_suite/transaction.py"],
+      "evidence": ["tests/test_shinigami_suite.py", "tests/shinigami-suite-quattro-runtime.sh", "tests/quattro-contract-regression.sh"]
+    },
+    {
+      "id": "audio",
+      "strategy": "port",
+      "sources": ["modules/AudioData.qml", "modules/AudioWidget.qml", "panels/MicrophonePeakMonitor.qml", "panels/VolumePanel.qml"],
+      "implementation": ["shinigami.audio/BarWidget.qml", "shinigami.audio/AudioPanel.qml", "shinigami.audio/Service.qml"],
+      "evidence": ["tests/audio-media-plugins-regression.sh", "tests/audio-plugin-smoke.qml"]
+    },
+    {
+      "id": "battery",
+      "strategy": "port",
+      "sources": ["modules/BatteryWidget.qml", "panels/BatteryPanel.qml"],
+      "implementation": ["shinigami.battery/BarWidget.qml", "shinigami.battery/BatteryPanel.qml"],
+      "evidence": ["tests/power-plugins-regression.sh", "tests/power-plugins-smoke.qml"]
+    },
+    {
+      "id": "bluetooth",
+      "strategy": "port",
+      "sources": ["modules/BluetoothWidget.qml", "panels/BluetoothPanel.qml"],
+      "implementation": ["shinigami.bluetooth/BarWidget.qml", "shinigami.bluetooth/BluetoothBackendAdapter.qml", "shinigami.bluetooth/Service.qml"],
+      "evidence": ["tests/bluetooth-plugin-regression.sh", "tests/bluetooth-plugin-smoke.qml", "tests/bluetooth-ipc-ownership-regression.sh"]
+    },
+    {
+      "id": "brightness",
+      "strategy": "port",
+      "sources": ["modules/BrightnessWidget.qml", "panels/BrightnessPanel.qml"],
+      "implementation": ["shinigami.display-manager/BarWidget.qml", "shinigami.display-manager/MonitorPanelBridge.qml"],
+      "evidence": ["tests/brightness-plugin-regression.sh", "tests/brightness-plugin-smoke.qml"]
+    },
+    {
+      "id": "calendar-clock",
+      "strategy": "port",
+      "sources": ["modules/ClockWidget.qml", "panels/CalendarPopup.qml"],
+      "implementation": ["shinigami.center/ClockWidget.qml", "shinigami.center/CalendarPanel.qml"],
+      "evidence": ["tests/center-plugin-regression.sh", "tests/center-plugin-smoke.qml"]
+    },
+    {
+      "id": "ai-usage",
+      "strategy": "port",
+      "sources": ["modules/ClaudeWidget.qml", "panels/AiUsagePanel.qml"],
+      "implementation": ["shinigami.ai/BarWidget.qml", "shinigami.ai/AiUsagePanel.qml", "shinigami.ai/Service.qml"],
+      "evidence": ["tests/ai-plugin-regression.sh", "tests/ai-plugin-smoke.qml"]
+    },
+    {
+      "id": "network",
+      "strategy": "port",
+      "sources": ["modules/CloudflareSpeedTest.qml", "modules/NetworkWidget.qml", "panels/NetworkManagerAdapter.qml", "panels/NetworkPanel.qml"],
+      "implementation": ["shinigami.network/BarWidget.qml", "shinigami.network/NetworkPanel.qml", "shinigami.network/Service.qml"],
+      "evidence": ["tests/network-plugin-regression.sh", "tests/network-plugin-smoke.qml"]
+    },
+    {
+      "id": "shared-text",
+      "strategy": "port",
+      "sources": ["modules/IconText.qml", "modules/UiText.qml"],
+      "implementation": ["shinigami.state/lib/presentation/IconText.qml"],
+      "evidence": ["tests/group-renderer-regression.qml", "tests/style-contract-regression.sh"]
+    },
+    {
+      "id": "status-indicators",
+      "strategy": "port",
+      "sources": ["modules/IdleWidget.qml", "modules/NotificationSilenceWidget.qml", "modules/NotificationWidget.qml", "modules/ScreenRecordWidget.qml", "modules/VoxtypeWidget.qml", "panels/NotificationPanel.qml"],
+      "implementation": ["shinigami.status/BarWidget.qml", "shinigami.status/NotificationPanel.qml", "shinigami.status/Service.qml"],
+      "evidence": ["tests/status-plugin-regression.sh", "tests/status-plugin-smoke.qml"]
+    },
+    {
+      "id": "idle-inhibitor",
+      "strategy": "port",
+      "sources": ["modules/IdleInhibitorWidget.qml"],
+      "implementation": ["shinigami.status/Service.qml", "shinigami.quick-access/Service.qml"],
+      "evidence": ["tests/status-plugin-regression.sh", "tests/quick-access-plugin-regression.sh"]
+    },
+    {
+      "id": "image-picker",
+      "strategy": "port",
+      "sources": ["panels/ImageCarouselCarousel.qml", "panels/ImageCarouselHearthstone.qml", "panels/ImageCarouselPanel.qml", "panels/ImagePickerModel.js"],
+      "implementation": ["shinigami.quick-access/CarouselPickerView.qml", "shinigami.quick-access/HearthstonePickerView.qml", "shinigami.quick-access/TanzakuPickerView.qml"],
+      "evidence": ["tests/quick-access-plugin-regression.sh", "tests/picker-model-regression.qml"]
+    },
+    {
+      "id": "media-browser",
+      "strategy": "port",
+      "sources": ["modules/MediaBrowserWidget.qml", "panels/MediaBrowserCarousel.qml", "panels/MediaBrowserHearthstone.qml", "panels/MediaBrowserPanel.qml"],
+      "implementation": ["shinigami.quick-access/BarWidget.qml", "shinigami.quick-access/PickerOverlay.qml", "shinigami.quick-access/Service.qml"],
+      "evidence": ["tests/quick-access-plugin-regression.sh", "tests/quick-access-plugin-smoke.qml"]
+    },
+    {
+      "id": "memory",
+      "strategy": "port",
+      "sources": ["modules/MemoryWidget.qml", "panels/MemoryPanel.qml"],
+      "implementation": ["shinigami.memory/BarWidget.qml", "shinigami.memory/MemoryPanel.qml", "shinigami.telemetry/Service.qml"],
+      "evidence": ["tests/telemetry-plugins-regression.sh", "tests/telemetry-plugins-smoke.qml"]
+    },
+    {
+      "id": "cpu",
+      "strategy": "port",
+      "sources": ["modules/CpuWidget.qml", "panels/CpuPanel.qml"],
+      "implementation": ["shinigami.cpu/BarWidget.qml", "shinigami.cpu/CpuPanel.qml", "shinigami.telemetry/Service.qml"],
+      "evidence": ["tests/telemetry-plugins-regression.sh", "tests/telemetry-plugins-smoke.qml"]
+    },
+    {
+      "id": "temperature",
+      "strategy": "port",
+      "sources": ["modules/CpuTemperatureWidget.qml", "panels/ThermalsPanel.qml"],
+      "implementation": ["shinigami.temperature/BarWidget.qml", "shinigami.temperature/TemperaturePanel.qml", "shinigami.telemetry/ThermalTelemetry.qml"],
+      "evidence": ["tests/telemetry-plugins-regression.sh", "tests/telemetry-plugins-smoke.qml"]
+    },
+    {
+      "id": "gpu",
+      "strategy": "port",
+      "sources": ["modules/GpuWidget.qml", "panels/GpuPanel.qml"],
+      "implementation": ["shinigami.gpu/BarWidget.qml", "shinigami.gpu/GpuPanel.qml"],
+      "evidence": ["tests/telemetry-plugins-regression.sh", "tests/telemetry-plugins-smoke.qml"]
+    },
+    {
+      "id": "storage",
+      "strategy": "port",
+      "sources": ["modules/StorageWidget.qml", "panels/StoragePanel.qml"],
+      "implementation": ["shinigami.storage/BarWidget.qml", "shinigami.storage/StoragePanel.qml"],
+      "evidence": ["tests/telemetry-plugins-regression.sh", "tests/telemetry-plugins-smoke.qml"]
+    },
+    {
+      "id": "media-player",
+      "strategy": "port",
+      "sources": ["modules/MprisArtwork.qml", "modules/MprisSelect.qml", "modules/MprisWidget.qml", "panels/MprisPanel.qml"],
+      "implementation": ["shinigami.media/BarWidget.qml", "shinigami.media/MediaPanel.qml", "shinigami.media/Service.qml"],
+      "evidence": ["tests/audio-media-plugins-regression.sh", "tests/media-plugin-smoke.qml"]
+    },
+    {
+      "id": "surface-shadow",
+      "strategy": "port",
+      "sources": ["modules/PillShadow.qml"],
+      "implementation": ["shinigami.state/lib/presentation/PillSurface.qml", "shinigami.bar/styles/shinigami/RunChrome.qml"],
+      "evidence": ["tests/group-renderer-regression.qml", "tests/run-geometry-regression.qml"]
+    },
+    {
+      "id": "power-profile",
+      "strategy": "port",
+      "sources": ["modules/PowerProfileWidget.qml", "panels/PowerProfilePanel.qml"],
+      "implementation": ["shinigami.power-profile/BarWidget.qml", "shinigami.power-profile/PowerProfilePanel.qml", "shinigami.power-state/Service.qml"],
+      "evidence": ["tests/power-plugins-regression.sh", "tests/power-plugins-smoke.qml"]
+    },
+    {
+      "id": "theme-display",
+      "strategy": "port",
+      "sources": ["modules/ThemeDisplayWidget.qml"],
+      "implementation": ["shinigami.quick-access/BarWidget.qml", "shinigami.quick-access/Service.qml"],
+      "evidence": ["tests/quick-access-plugin-regression.sh", "tests/quick-access-plugin-smoke.qml"]
+    },
+    {
+      "id": "tooltip",
+      "strategy": "port",
+      "sources": ["modules/TooltipMixin.qml", "panels/TooltipOverlay.qml"],
+      "implementation": ["shinigami.state/lib/presentation/ShinigamiPanelToolTip.qml", "shinigami.bar/Bar.qml"],
+      "evidence": ["tests/panel-surface-smoke.qml", "tests/group-renderer-regression.qml"]
+    },
+    {
+      "id": "tray",
+      "strategy": "port",
+      "sources": ["modules/TrayWidget.qml", "panels/TrayMenu.qml", "panels/TrayPanel.qml"],
+      "implementation": ["shinigami.status/TrayStatusView.qml", "shinigami.status/TrayDrawerPanel.qml", "shinigami.status/TrayAppMenuPanel.qml"],
+      "evidence": ["tests/status-plugin-regression.sh", "tests/tray-app-menu-smoke.qml"]
+    },
+    {
+      "id": "weather",
+      "strategy": "port",
+      "sources": ["modules/WeatherWidget.qml", "panels/WeatherPanel.qml"],
+      "implementation": ["shinigami.center/WeatherWidget.qml", "shinigami.center/WeatherPanel.qml", "shinigami.center/WeatherService.qml"],
+      "evidence": ["tests/center-plugin-regression.sh", "tests/weather-service-start-smoke.qml"]
+    },
+    {
+      "id": "workspaces",
+      "strategy": "port",
+      "sources": ["modules/WorkspaceWidget.qml", "panels/WorkspacePanel.qml"],
+      "implementation": ["shinigami.workspaces/BarWidget.qml", "shinigami.workspaces/WorkspacePanel.qml", "shinigami.workspaces/WorkspaceService.qml"],
+      "evidence": ["tests/workspaces-plugin-regression.sh", "tests/workspaces-plugin-smoke.qml"]
+    }
+  ]
+}

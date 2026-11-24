@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.cpu",
+  "name": "Shinigami CPU",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami CPU widget, GPU sampler, and detailed usage panel.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami CPU",
+    "description": "CPU activity with optional GPU details",
+    "category": "System",
+    "defaultSection": "left",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G5",
+    "requires": [
+      "shinigami.state",
+      "shinigami.telemetry"
+    ],
+    "recommends": []
+  }
+}

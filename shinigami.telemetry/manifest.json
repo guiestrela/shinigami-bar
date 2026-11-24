@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.telemetry",
+  "name": "Shinigami Telemetry",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Demand-driven CPU and memory telemetry shared by Shinigami widgets.",
+  "kinds": [
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml"
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "core",
+    "role": "telemetry",
+    "requires": [],
+    "recommends": []
+  }
+}

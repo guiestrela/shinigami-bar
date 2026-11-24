@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "shinigami.status",
+  "name": "Shinigami Status",
+  "version": "0.2.5",
+  "author": "guiestrela",
+  "license": "MIT",
+  "description": "Shinigami tray and notification composition with shared desktop status state.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Shinigami status",
+    "description": "System tray, hidden apps, notifications, and desktop status",
+    "category": "System",
+    "defaultSection": "left",
+    "allowMultiple": false
+  },
+  "x-shinigami": {
+    "suiteId": "hancore.shinigami",
+    "bundle": "default",
+    "role": "G3",
+    "capabilities": ["indicators", "notifications", "tray"],
+    "preferredRegion": "left",
+    "requires": [
+      "shinigami.state",
+      "shinigami.update-center"
+    ],
+    "recommends": []
+  }
+}
