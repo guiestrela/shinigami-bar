@@ -47,7 +47,7 @@ class ContinuityManagerTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.module = runpy.run_path(str(MANAGER))
         self.state = {
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "plugins": [
                 "shinigami.bar",
                 "shinigami.state",
@@ -1640,7 +1640,7 @@ class ContinuityManagerTests(unittest.TestCase):
                         if scenario == "foreign state snapshot":
                             saved_state = {"suiteId": "foreign"}
                         elif scenario == "incomplete state snapshot":
-                            saved_state = {"suiteId": "hancore.shinigami"}
+                            saved_state = {"suiteId": "hancore.shibumi"}
                         else:
                             saved_state = self.state
                         (transaction / "install.json.before").write_text(

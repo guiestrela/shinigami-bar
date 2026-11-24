@@ -145,7 +145,7 @@ QtObject {
     try {
       const marker = JSON.parse(String(text || ""))
       const digest = String(marker.suitePayloadDigest || "")
-      if (marker.suiteId !== "hancore.shinigami" || !/^[0-9a-f]{64}$/.test(digest)) {
+      if (marker.suiteId !== "hancore.shibumi" || !/^[0-9a-f]{64}$/.test(digest)) {
         retire()
         return
       }

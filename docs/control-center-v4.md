@@ -520,7 +520,7 @@ the user must confirm the risk explicitly before the command may start.
 
 The compatibility label is deliberately conservative:
 
-- **Native**: manifest declares `x-shinigami.suiteId = hancore.shinigami`;
+- **Native**: manifest declares `x-shinigami.suiteId = hancore.shibumi`;
 - **Adaptive**: a non-Shinigami `bar-widget` receives host bar/tooltip chrome;
 - **Original**: panels and other plugins retain their own visible surface.
 

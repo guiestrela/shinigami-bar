@@ -30,7 +30,7 @@ monitor and picker paths.
 ## Plugin identity
 
 Plugin IDs use `shinigami.<plugin>`. The suite and ownership markers use
-`hancore.shinigami`. The installer can read the previous settings keys and
+`hancore.shibumi`. The installer can read the previous settings keys and
 write them using the new names. Published upstream identities retain their
 original names and digests.
 

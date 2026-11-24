@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "suiteId": "hancore.shinigami",
+  "suiteId": "hancore.shibumi",
   "suiteVersion": "0.2.5",
   "settingsStorageVersion": 1,
   "hostContract": "contracts/host-facade-v1.json",

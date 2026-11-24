@@ -702,7 +702,7 @@ Current status:
   registry/service-only host and passes a fresh Quattro composition smoke
 - Plugin-suite migration Phase E: complete. the validation system passed the historical 21-to-22
   update migration, final-source uninstall with clean stock-bar recovery, a
-  fresh install, later expansion to 24 plugins, markerless alpha ownership
+  fresh install, later expansion to the historical plugin roster, markerless alpha ownership
   adoption, and a controlled post-exposure failed-update
   rollback without configuration, state, payload, process, or artifact loss
 - Phase 0: complete

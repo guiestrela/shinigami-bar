@@ -20,7 +20,7 @@ from typing import Any
 
 REGIONS = ("left", "center", "right")
 NATIVE_SECTIONS = ("left", "centerBegin", "center", "centerEnd", "right", "tray")
-SUITE_ID = "hancore.shinigami"
+SUITE_ID = "hancore.shibumi"
 
 
 class ManagerError(RuntimeError):

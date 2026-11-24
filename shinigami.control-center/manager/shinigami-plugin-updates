@@ -33,7 +33,7 @@ valid_plugin_id() {
 is_shinigami_suite_plugin() {
   local manifest="$1/manifest.json"
   [[ -f $manifest ]] || return 1
-  [[ $(jq -r '.["x-shinigami"].suiteId // ""' "$manifest" 2>/dev/null) == "hancore.shinigami" ]]
+  [[ $(jq -r '.["x-shinigami"].suiteId // ""' "$manifest" 2>/dev/null) == "hancore.shibumi" ]]
 }
 
 updates=()

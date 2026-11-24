@@ -27,7 +27,7 @@ cp -- "$repo_root/shinigami.audio/Service.qml" "$tmpdir/audio/"
 cp "$repo_root/tests/fixtures/AudioPeakTestMonitor.qml" "$tmpdir/audio/AudioPeakMonitor.qml"
 mkdir -p "$tmpdir/shinigami.state"
 cp -a "$repo_root/shinigami.state/runtime" "$tmpdir/shinigami.state/"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 install -m 0644 "$repo_root/tests/reactor-plugin-smoke.qml" "$tmpdir/shell.qml"
 

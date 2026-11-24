@@ -7,7 +7,7 @@ ARCHITECTURE.md remains authoritative.
 
 ## Scope
 
-The suite retains its 24 separately registered plugin IDs and one production
+The suite retains its 27 separately registered plugin IDs and one production
 Quickshell process. Its two narrowly admitted cross-plugin modules live at
 `shinigami.state/runtime/` and
 `shinigami.state/lib/presentation/`. They are maintained there directly,

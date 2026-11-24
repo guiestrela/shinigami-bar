@@ -71,7 +71,7 @@ def main():
                 shutil.rmtree(destination)
             native.materialize(native.snapshot(ROOT / plugin_id), destination)
             (destination / ".shinigami-managed.json").write_text(json.dumps({
-                "suiteId": "hancore.shinigami", "suitePayloadDigest": "a" * 64,
+                "suiteId": "hancore.shibumi", "suitePayloadDigest": "a" * 64,
             }), encoding="utf-8")
         config_path = base / "home/.config/omarchy/shell.json"
         config = json.loads(config_path.read_text(encoding="utf-8"))

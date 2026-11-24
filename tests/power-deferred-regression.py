@@ -51,7 +51,7 @@ def main():
                 'shell.qml': (shell, False),
                 'fixtures/power-runtime-helper.py': (helper, False),
                 'shinigami.state/.shinigami-managed.json': (json.dumps({
-                    'suiteId': 'hancore.shinigami', 'suitePayloadDigest': '0' * 64}).encode(), False),
+                    'suiteId': 'hancore.shibumi', 'suitePayloadDigest': '0' * 64}).encode(), False),
                 'data/profile': (b'balanced\n', False),
                 'data/trace': (b'', False),
                 'data/barrier': (b'', False),

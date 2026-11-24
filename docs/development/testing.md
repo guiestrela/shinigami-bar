@@ -32,7 +32,7 @@ change, changed-process refusal, and scope loss/recovery. Every case remains
 fail-closed until a replacement owner is observed, dispatches at most one native
 rescan, and checks the exact bounded observation vocabulary, event cardinality,
 monotonic elapsed milliseconds, and four-field redacted JSON shape. The pinned
-native all-24 and runtime probes separately prove that the Runtime singleton
+native all-suite and runtime probes separately prove that the Runtime singleton
 survives the real host rescan and publishes exactly one successful attempt.
 
 For a Bluetooth change:

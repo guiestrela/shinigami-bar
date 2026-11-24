@@ -13,7 +13,7 @@
     "bar": "Bar.qml"
   },
   "x-shinigami": {
-    "suiteId": "hancore.shinigami",
+    "suiteId": "hancore.shibumi",
     "bundle": "core",
     "role": "bar-host",
     "requires": [

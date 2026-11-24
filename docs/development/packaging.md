@@ -4,7 +4,7 @@ Status: `0.2.5` source and package workflows. `shinigami-shell` has been in
 `omacom/omarchy-pkgs` since 0.2.0 (2026-11-04), reaching the `edge` ring first.
 AUR publication is not a target.
 
-Shinigami ships one versioned suite containing 24 separately validated Omarchy
+Shinigami ships one versioned suite containing 27 separately validated Omarchy
 Quattro plugin roots. Pacman owns the immutable program files; the Shinigami
 lifecycle owns explicit per-user staging, activation, repair, and removal.
 
@@ -127,7 +127,7 @@ result. It requires:
 - no install hook, user path, bytecode cache, or unexpected payload;
 - the stable command, package marker, license, suite contract, and lifecycle
   predecessor contract;
-- exactly the 24 contract-declared plugin manifests;
+- exactly the 27 contract-declared plugin manifests;
 - a successful packaged lifecycle help smoke.
 
 `--nodeps` is used only by this controlled rehearsal because dependency

@@ -25,7 +25,7 @@ mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures" "$tmpdir/home" \
 chmod 700 "$tmpdir/runtime" "$tmpdir/home" "$tmpdir/config" \
   "$tmpdir/cache" "$tmpdir/data" "$tmpdir/state" "$tmpdir/tmp"
 shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 mkdir -p "$tmpdir/shinigami.bar"
 install -Dm0644 "$repo_root/shinigami.bar/core/GroupRegistry.js" \

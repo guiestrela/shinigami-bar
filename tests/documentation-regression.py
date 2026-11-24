@@ -32,7 +32,12 @@ PLUGIN_COUNT_DOCUMENTS = (
     "ARCHITECTURE.md",
     "docs/install.md",
     "docs/architecture/overview.md",
+    "docs/architecture/quattro-compatibility.md",
+    "docs/architecture/shared-runtime-v1.md",
+    "docs/development/packaging.md",
     "docs/development/setup.md",
+    "docs/plugin-compatibility.md",
+    "docs/plugin-suite-migration-plan.md",
 )
 BLUETOOTH_OWNERSHIP_SURFACES = (
     "ARCHITECTURE.md",
@@ -374,9 +379,11 @@ def main() -> None:
         rf"\b(?:plugins?|roots?)\b[^\n]{{0,80}}\b{plugin_count}\b)",
         flags=re.IGNORECASE,
     )
+    retired_counts = tuple(count for count in (24, 25) if count != plugin_count)
+    retired_alternatives = "|".join(str(count) for count in retired_counts)
     stale_pattern = re.compile(
-        r"(?:\b25\b[^\n]{0,80}\b(?:plugins?|roots?)\b|"
-        r"\b(?:plugins?|roots?)\b[^\n]{0,80}\b25\b)",
+        rf"(?:\b(?:{retired_alternatives})\b[^\n]{{0,80}}\b(?:plugins?|roots?)\b|"
+        rf"\b(?:plugins?|roots?)\b[^\n]{{0,80}}\b(?:{retired_alternatives})\b)",
         flags=re.IGNORECASE,
     )
     for relative in PLUGIN_COUNT_DOCUMENTS:

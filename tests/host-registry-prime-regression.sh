@@ -33,7 +33,7 @@ fi
 cp -a "$repo_root/shinigami.state" "$tmpdir/"
 cp "$repo_root/tests/host-registry-prime-smoke.qml" "$tmpdir/shell.qml"
 printf '%s\n' \
-  '{"suiteId":"hancore.shinigami","suitePayloadDigest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}' \
+  '{"suiteId":"hancore.shibumi","suitePayloadDigest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}' \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 
 mode_index=0

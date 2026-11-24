@@ -20,7 +20,7 @@
     "allowMultiple": false
   },
   "x-shinigami": {
-    "suiteId": "hancore.shinigami",
+    "suiteId": "hancore.shibumi",
     "bundle": "default",
     "role": "indicators",
     "requires": [

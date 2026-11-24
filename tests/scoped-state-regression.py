@@ -136,7 +136,7 @@ def run_case(base, mode, api, state_source, probe, runtime_fixture=False, runtim
         'property color urgent: "red"; property color accent: "blue";\n'
         'property color foreground: "white"; property color background: "black";\n'
         'property color muted: "gray"\n}\n')
-    marker = {"suiteId": "hancore.shinigami", "suitePayloadDigest": DIGEST}
+    marker = {"suiteId": "hancore.shibumi", "suitePayloadDigest": DIGEST}
     if mode == "wrong-digest":
         marker["suitePayloadDigest"] = "b" * 64
     elif mode == "wrong-suite":
@@ -147,7 +147,7 @@ def run_case(base, mode, api, state_source, probe, runtime_fixture=False, runtim
             (directory / name / ".shinigami-managed.json").write_text(raw)
     # Even a valid-looking manifest path cannot substitute another location.
     (directory / "decoy/.shinigami-managed.json").write_text(json.dumps({
-        "suiteId": "hancore.shinigami", "suitePayloadDigest": "c" * 64}))
+        "suiteId": "hancore.shibumi", "suitePayloadDigest": "c" * 64}))
     command = ["/usr/bin/quickshell", "-p", str(directory)]
     proc = subprocess.Popen(command, env=env, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, start_new_session=True)
@@ -179,7 +179,7 @@ def run_case(base, mode, api, state_source, probe, runtime_fixture=False, runtim
                     # Mutate only the owned fixture marker. A running engine
                     # must retire rather than adopt the newly published digest.
                     (directory / "plugin/.shinigami-managed.json").write_text(json.dumps({
-                        "suiteId": "hancore.shinigami", "suitePayloadDigest": "d" * 64}))
+                        "suiteId": "hancore.shibumi", "suitePayloadDigest": "d" * 64}))
                     for _ in range(20):
                         if ipc(env, directory, deadline, "shinigami-suite-runtime", "verifyPayload", DIGEST) == "not-ready":
                             break

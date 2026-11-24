@@ -275,13 +275,13 @@ def stage(base, native, plugins, marker_source, negative=False):
     for root_name, payload in plugins.items():
         materialize(payload, plugin_dir / root_name)
         (plugin_dir / root_name / ".shinigami-managed.json").write_text(
-            json.dumps({"suiteId": "hancore.shinigami",
+            json.dumps({"suiteId": "hancore.shibumi",
                         "suitePayloadDigest": MARKER_DIGEST}))
 
     marker = plugin_dir / MARKER_ID
     marker.mkdir()
     (marker / ".shinigami-managed.json").write_text(json.dumps({
-        "suiteId": "hancore.shinigami", "suitePayloadDigest": MARKER_DIGEST}))
+        "suiteId": "hancore.shibumi", "suitePayloadDigest": MARKER_DIGEST}))
     (marker / "manifest.json").write_text(json.dumps({
         "schemaVersion": 1, "id": MARKER_ID, "name": "Pipeline marker",
         "version": "1.0.0", "kinds": ["bar-widget"],

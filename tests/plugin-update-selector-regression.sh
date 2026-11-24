@@ -36,7 +36,7 @@ git -C "$author" commit --quiet -m update
 mkdir -p "$plugins/third.party.archive" "$plugins/shinigami.fixture"
 printf '{"id":"third.party.archive"}\n' \
   > "$plugins/third.party.archive/manifest.json"
-printf '{"id":"shinigami.fixture","x-shinigami":{"suiteId":"hancore.shinigami"}}\n' \
+printf '{"id":"shinigami.fixture","x-shinigami":{"suiteId":"hancore.shibumi"}}\n' \
   > "$plugins/shinigami.fixture/manifest.json"
 
 output=$(SHINIGAMI_PLUGIN_DIR="$plugins" SHINIGAMI_ALLOW_FILE_REMOTE=1 \

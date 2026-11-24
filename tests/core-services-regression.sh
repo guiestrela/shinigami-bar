@@ -19,7 +19,7 @@ chmod 700 "$smoke_root/runtime"
 cp -a "$repo_root/shinigami.telemetry" "$smoke_root/telemetry"
 mkdir -p "$smoke_root/shinigami.state"
 cp -a "$repo_root/shinigami.state/runtime" "$smoke_root/shinigami.state/"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$smoke_root/shinigami.state/.shinigami-managed.json"
 mkdir -p "$smoke_root/cpu"
 cp "$repo_root/shinigami.cpu/Service.qml" \

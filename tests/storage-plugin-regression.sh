@@ -22,7 +22,7 @@ mkdir -p "$tmpdir/runtime"
 chmod 700 "$tmpdir/runtime"
 cp -a -- "$repo_root/shinigami.storage" "$tmpdir/storage"
 shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 install -m 0644 "$repo_root/tests/fixtures/ShinigamiPanelTest.qml" \
   "$tmpdir/storage/ShinigamiPanel.qml"

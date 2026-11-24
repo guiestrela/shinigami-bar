@@ -45,7 +45,7 @@ hides unsupported layout controls while a standard external host is active.
 
 ## Install without replacing the current bar
 
-Install all 24 managed plugin roots while preserving the current bar and its
+Install all 27 managed plugin roots while preserving the current bar and its
 widget layout:
 
 ```bash

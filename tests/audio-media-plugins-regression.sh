@@ -22,7 +22,7 @@ fail() {
 stage_media_runtime() {
   local root=$1
   shinigami_stage_suite_runtime "$repo_root" "$root"
-  printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+  printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
     > "$root/shinigami.state/.shinigami-managed.json"
 }
 

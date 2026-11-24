@@ -24,7 +24,7 @@ cp -a -- "$repo_root/shinigami.memory" "$tmpdir/memory"
 cp -a -- "$repo_root/shinigami.cpu" "$tmpdir/cpu"
 cp -a -- "$repo_root/shinigami.gpu" "$tmpdir/gpu"
 cp -a -- "$repo_root/shinigami.state" "$tmpdir/shinigami.state"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 cp -a -- "$repo_root/shinigami.temperature" "$tmpdir/temperature"
 cp -a -- "$repo_root/shinigami.storage" "$tmpdir/storage"

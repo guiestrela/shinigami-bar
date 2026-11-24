@@ -30,7 +30,7 @@ def main():
                      "runtime/Runtime.qml", "runtime/Provider.qml", "runtime/HostShell.qml", "runtime/HostContract.qml"):
             sources["state/" + name] = (read_regular(ROOT / "shinigami.state" / name, 65536), False)
         sources["state/.shinigami-managed.json"] = (json.dumps({
-            "suiteId": "hancore.shinigami", "suitePayloadDigest": "a" * 64}).encode(), False)
+            "suiteId": "hancore.shibumi", "suitePayloadDigest": "a" * 64}).encode(), False)
         sources["Commons/qmldir"] = (b"singleton Color 1.0 Color.qml\n", False)
         sources["Commons/Color.qml"] = (b'pragma Singleton\nimport QtQuick\nQtObject {\n'
             b'property color urgent: "red"; property color accent: "blue";\n'

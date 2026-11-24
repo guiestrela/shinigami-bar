@@ -60,7 +60,7 @@ config.mkdir(parents=True)
                  'shinigami': {'version': 1, 'presentation': {'accent': 'color06'}}}]
 }))
 (root / 'plugin/.shinigami-managed.json').write_text(json.dumps({
-    'suiteId': 'hancore.shinigami', 'suitePayloadDigest': 'a' * 64
+    'suiteId': 'hancore.shibumi', 'suitePayloadDigest': 'a' * 64
 }))
 PY
 cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"

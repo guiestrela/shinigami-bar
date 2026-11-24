@@ -57,7 +57,7 @@ cp -a "$repo_root/shinigami.state" "$tmpdir/"
 cp -a "$omarchy_path/shell/Commons" "$tmpdir/"
 cp "$repo_root/tests/widget-pipeline-diagnostics-smoke.qml" "$tmpdir/shell.qml"
 printf '%s\n' \
-  '{"suiteId":"hancore.shinigami","suitePayloadDigest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}' \
+  '{"suiteId":"hancore.shibumi","suitePayloadDigest":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}' \
   > "$tmpdir/.shinigami-managed.json"
 cp "$tmpdir/.shinigami-managed.json" \
   "$tmpdir/shinigami.state/.shinigami-managed.json"

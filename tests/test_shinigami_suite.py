@@ -1877,7 +1877,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             target / ".shinigami-managed.json",
             (json.dumps({
                 "schemaVersion": 1,
-                "suiteId": "hancore.shinigami",
+                "suiteId": "hancore.shibumi",
                 "pluginId": plugin_id,
             }, indent=2) + "\n").encode(),
         )
@@ -4060,7 +4060,7 @@ class SuiteLifecycleTests(unittest.TestCase):
                     / ".shinigami-managed.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual(marker["suiteId"], "hancore.shinigami")
+            self.assertEqual(marker["suiteId"], "hancore.shibumi")
             self.assertEqual(marker["pluginId"], plugin_id)
 
     def test_update_refuses_markerless_foreign_directory(self) -> None:
@@ -5322,7 +5322,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             json.dumps(
                 {
                     "schemaVersion": 1,
-                    "suiteId": "hancore.shinigami",
+                    "suiteId": "hancore.shibumi",
                     "pluginId": plugin_id,
                 }
             )
@@ -5873,7 +5873,7 @@ class SuiteLifecycleTests(unittest.TestCase):
                     )
                 journal: object = {
                     "schemaVersion": JOURNAL_SCHEMA_VERSION,
-                    "suiteId": "hancore.shinigami",
+                    "suiteId": "hancore.shibumi",
                     "token": token,
                     "phase": "prepared",
                     "pluginRoot": str(self.paths.plugin_dir.resolve()),

@@ -302,7 +302,7 @@ function alternativesForFamily(family, registry, observation, scoped) {
     var id = ids[i]
     var manifest = installed[id] || {}
     var shinigami = manifest["x-shinigami"] || {}
-    if (String(shinigami.suiteId || "") === "hancore.shinigami") continue
+    if (String(shinigami.suiteId || "") === "hancore.shibumi") continue
     var capabilities = capabilitiesForPlugin(id, registry, null, false)
     var sharesCapability = capabilities.some(function(capability) {
       return family.capabilities.indexOf(capability) >= 0

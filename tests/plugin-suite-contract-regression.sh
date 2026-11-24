@@ -30,7 +30,7 @@ rg -Fq 'runtime.restart_shell()' "$repo_root/scripts/shinigami_suite/cli.py" \
 
 jq -e '
   .schemaVersion == 1 and
-  .suiteId == "hancore.shinigami" and
+  .suiteId == "hancore.shibumi" and
   .suiteVersion != "" and
   .hostContract == "contracts/host-facade-v1.json" and
   (.plugins | length) > 0 and

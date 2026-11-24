@@ -44,7 +44,7 @@ def stage(base, native):
         identities[name] = fingerprint(source)
         materialize(source, plugins / name)
         (plugins / name / ".shinigami-managed.json").write_text(json.dumps({
-            "suiteId": "hancore.shinigami", "suitePayloadDigest": "a" * 64}))
+            "suiteId": "hancore.shibumi", "suitePayloadDigest": "a" * 64}))
     fixtures = snapshot(ROOT / "tests/fixtures")
     helpers = snapshot(ROOT / "tests/lib")
     substitutions = {
@@ -91,12 +91,12 @@ def stage(base, native):
     shinigami_audio = plugins / "shinigami.audio"
     shinigami_audio.mkdir()
     (shinigami_audio / ".shinigami-managed.json").write_text(json.dumps({
-        "suiteId": "hancore.shinigami", "suitePayloadDigest": "a" * 64}))
+        "suiteId": "hancore.shibumi", "suitePayloadDigest": "a" * 64}))
     (shinigami_audio / "manifest.json").write_text(json.dumps({
         "schemaVersion": 1, "id": "shinigami.audio", "name": "Shinigami Audio",
         "version": "0.1.1-beta.16.1", "kinds": ["bar-widget"],
         "entryPoints": {"barWidget": "Widget.qml"},
-        "x-shinigami": {"suiteId": "hancore.shinigami"},
+        "x-shinigami": {"suiteId": "hancore.shibumi"},
         "barWidget": {"displayName": "Shinigami Audio", "category": "Audio",
             "semanticCapabilities": [], "defaultSection": "right", "allowMultiple": False}}))
     (shinigami_audio / "Widget.qml").write_text(
@@ -106,12 +106,12 @@ def stage(base, native):
     shinigami_cpu = plugins / "shinigami.cpu"
     shinigami_cpu.mkdir()
     (shinigami_cpu / ".shinigami-managed.json").write_text(json.dumps({
-        "suiteId": "hancore.shinigami", "suitePayloadDigest": "a" * 64}))
+        "suiteId": "hancore.shibumi", "suitePayloadDigest": "a" * 64}))
     (shinigami_cpu / "manifest.json").write_text(json.dumps({
         "schemaVersion": 1, "id": "shinigami.cpu", "name": "Shinigami CPU",
         "version": "0.1.1-beta.16.1", "kinds": ["bar-widget"],
         "entryPoints": {"barWidget": "Widget.qml"},
-        "x-shinigami": {"suiteId": "hancore.shinigami"},
+        "x-shinigami": {"suiteId": "hancore.shibumi"},
         "barWidget": {"displayName": "Shinigami CPU", "category": "System",
             "semanticCapabilities": [], "defaultSection": "left", "allowMultiple": False}}))
     (shinigami_cpu / "Widget.qml").write_text(

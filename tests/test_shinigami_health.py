@@ -74,7 +74,7 @@ class HealthDiagnosticsTests(unittest.TestCase):
             (target / ".shinigami-managed.json").write_text(
                 json.dumps(
                     {
-                        "suiteId": "hancore.shinigami",
+                        "suiteId": "hancore.shibumi",
                         "pluginId": plugin_id,
                         "payloadDigest": digest,
                     }
@@ -115,7 +115,7 @@ class HealthDiagnosticsTests(unittest.TestCase):
         self.make_git_source()
         self.state = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": "0.1.0",
             "sourceRoot": str(self.source),
             "plugins": self.plugin_ids,

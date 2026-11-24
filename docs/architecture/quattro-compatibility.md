@@ -141,7 +141,7 @@ real stock-bar switching, physical output behavior or desktop acceptance on it.
 The Quattro source contract binds `SuiteRuntime.HostContract` as one layer for its first-party IDs, IPC targets and host marker/theme paths; it adds no host authority or runtime version discovery.
 
 Before mutating user state, the Shinigami lifecycle verifies the Quattro APIs
-used by its own 24-plugin suite: plugin validation and discovery, bar selection
+used by its own 27-plugin suite: plugin validation and discovery, bar selection
 and configuration, plugin-registry injection, and the shared keyboard-panel
 border contract. A missing contract stops install, update, or repair with an
 explicit incompatibility error.
@@ -185,8 +185,8 @@ validation, permission-scoped State writes and readback under stock and suite
 bars, Control Center restoration through file-backed settlement, and the
 monitor's scalar-Bar bridge. They also exercise the PID-bound native catalog,
 independent Bar and page consumers, selected-provider changes and exact V1/V2
-undo, stale-snapshot refusal, and all 24 plugin roots with the exact 18 scoped
-service owners. It also proves the one-shot exact-PID public registry prime:
+undo, stale-snapshot refusal, and every root declared by that candidate with its
+exact scoped service owners. It also proves the one-shot exact-PID public registry prime:
 the pre-prime Bar remains unavailable, a replacement Bar is required, and a
 missing replacement fails bounded and without retry. This works around the
 pinned host's first-mutation loss without retaining a revoked Component or

@@ -33,7 +33,7 @@ mkdir -p "$tmpdir/runtime" "$tmpdir/fixtures"
 chmod 700 "$tmpdir/runtime"
 cp -a -- "$repo_root/shinigami.workspaces" "$tmpdir/workspaces"
 shinigami_stage_suite_runtime "$repo_root" "$tmpdir"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 cp -a -- "$omarchy_path/shell/Commons" "$tmpdir/Commons"
 cp -a -- "$omarchy_path/shell/Ui" "$tmpdir/Ui"

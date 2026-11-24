@@ -62,7 +62,7 @@ def main():
     for name, value in snapshot(ROOT / 'shinigami.state/runtime').items():
         sources['shinigami.state/runtime/' + name] = value
     sources['shinigami.state/.shinigami-managed.json'] = (
-        b'{"suiteId":"hancore.shinigami","suitePayloadDigest":"' + b'a' * 64 + b'"}', False)
+        b'{"suiteId":"hancore.shibumi","suitePayloadDigest":"' + b'a' * 64 + b'"}', False)
     sources['cgroup_exec.py'] = (read_regular(ROOT / 'tests/lib/cgroup_exec.py', 65536), False)
     sources['demand.qml'] = (read_regular(ROOT / 'tests/catalog-demand-smoke.qml', 65536), False)
     if not args.demand_only:

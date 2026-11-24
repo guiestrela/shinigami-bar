@@ -27,7 +27,7 @@ install -Dm0644 "$repo_root/tests/plugin-update-service-smoke.qml" \
   "$tmpdir/shell.qml"
 mkdir -p "$tmpdir/shinigami.state"
 cp -a "$repo_root/shinigami.state/runtime" "$tmpdir/shinigami.state/"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/shinigami.state/.shinigami-managed.json"
 
 state_file="$tmpdir/state"

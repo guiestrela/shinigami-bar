@@ -72,7 +72,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         package = revision.startswith("package:")
         state: dict[str, object] = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "profile": "default",
             "activeBar": "shinigami.bar",
@@ -135,7 +135,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         config_parent = self.paths.config_file.parent.stat()
         return {
             "schemaVersion": JOURNAL_SCHEMA_VERSION,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "token": token,
             "phase": phase,
             "pluginRoot": str(self.paths.plugin_dir.resolve(strict=False)),
@@ -165,7 +165,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
             shutil.copytree(self.suite.plugins[plugin_id].source, target)
             marker = {
                 "schemaVersion": 1,
-                "suiteId": "hancore.shinigami",
+                "suiteId": "hancore.shibumi",
                 "suiteVersion": state["suiteVersion"],
                 "pluginId": plugin_id,
                 "sourceRevision": state["sourceRevision"],
@@ -227,7 +227,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
             target = self.paths.plugin_dir / str(plugin_id)
             marker = {
                 "schemaVersion": 1,
-                "suiteId": "hancore.shinigami",
+                "suiteId": "hancore.shibumi",
                 "suiteVersion": state["suiteVersion"],
                 "pluginId": plugin_id,
                 "sourceRevision": revision,
@@ -1071,7 +1071,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1123,7 +1123,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1189,7 +1189,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1364,7 +1364,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1421,7 +1421,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1471,7 +1471,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": identity["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": identity["sourceRevisions"][0],
@@ -1618,7 +1618,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
             shutil.copytree(self.suite.plugins[plugin_id].source, target)
             marker = {
                 "schemaVersion": 1,
-                "suiteId": "hancore.shinigami",
+                "suiteId": "hancore.shibumi",
                 "suiteVersion": state["suiteVersion"],
                 "pluginId": plugin_id,
                 "sourceRevision": state["sourceRevision"],
@@ -1683,7 +1683,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         target.mkdir(parents=True)
         marker = {
             "schemaVersion": 1,
-            "suiteId": "hancore.shinigami",
+            "suiteId": "hancore.shibumi",
             "suiteVersion": state["suiteVersion"],
             "pluginId": plugin_id,
             "sourceRevision": "08ade6e000000000000000000000000000000000",

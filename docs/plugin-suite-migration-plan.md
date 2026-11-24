@@ -69,7 +69,7 @@ shinigami/
   tests/
 ```
 
-`contracts/plugin-suite-v1.json` is the executable list of all 24 plugin roots,
+`contracts/plugin-suite-v1.json` is the executable list of all 27 plugin roots,
 their kinds, ownership roles, dependencies, and the default profile. A runtime
 plugin is valid only when its complete implementation and owner live inside its
 own directory.
@@ -202,7 +202,7 @@ bounded compatibility adapter or an explicit release gate.
 - Add plugin self-containment and forbidden sibling-import checks.
 - Add installer dry-run, validation, dependency, and rollback fixtures.
 
-The complete 24-plugin target set is independently loadable. Shared sources are
+The complete 27-plugin target set is independently loadable. Shared sources are
 deterministically vendored, and the active bar satisfies host-facade V1. Every
 fixed G1-G15 slot resolves a registered plugin entry point. Current completion
 evidence belongs in `release-readiness.md`.

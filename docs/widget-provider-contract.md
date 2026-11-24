@@ -24,7 +24,7 @@ region under `x-shinigami`:
 ```json
 {
   "x-shinigami": {
-    "suiteId": "hancore.shinigami",
+    "suiteId": "hancore.shibumi",
     "role": "G8",
     "capabilities": ["clock", "weather"],
     "preferredRegion": "center"

@@ -90,7 +90,7 @@ cp -a "$OMARCHY_PATH/shell/Commons" "$tmpdir/"
 cp "$repo_root/shinigami.audio/Service.qml" "$tmpdir/owners/audio/"
 # State and Audio import the same one physical runtime, not per-owner copies.
 cp -a "$repo_root/shinigami.state/." "$tmpdir/owners/shinigami.state/"
-printf '{"suiteId":"hancore.shinigami","suitePayloadDigest":"%064d"}\n' 0 \
+printf '{"suiteId":"hancore.shibumi","suitePayloadDigest":"%064d"}\n' 0 \
   > "$tmpdir/owners/shinigami.state/.shinigami-managed.json"
 cp "$repo_root/tests/fixtures/AudioPeakTestMonitor.qml" "$tmpdir/owners/audio/AudioPeakMonitor.qml"
 cp "$repo_root/tests/third-party-integration-smoke.qml" "$tmpdir/shell.qml"

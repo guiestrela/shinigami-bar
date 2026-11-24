@@ -406,7 +406,7 @@ ShinigamiPanel {
   function pluginCompatibility(manifest) {
     const shinigami = manifest && manifest["x-shinigami"]
       ? manifest["x-shinigami"] : null
-    if (shinigami && String(shinigami.suiteId || "") === "hancore.shinigami")
+    if (shinigami && String(shinigami.suiteId || "") === "hancore.shibumi")
       return "Native"
     const kinds = manifest && Array.isArray(manifest.kinds)
       ? manifest.kinds : []
@@ -492,7 +492,7 @@ ShinigamiPanel {
           id: row.id,
           name: row.name,
           kinds: row.kinds,
-          "x-shinigami": managed ? { suiteId: "hancore.shinigami" } : ({}),
+          "x-shinigami": managed ? { suiteId: "hancore.shibumi" } : ({}),
           __isFirstParty: row.firstParty === true,
           __catalogEnabled: row.enabled === true,
           __catalogActive: row.active === true,
@@ -519,7 +519,7 @@ ShinigamiPanel {
       const kinds = Array.isArray(manifest.kinds) ? manifest.kinds : []
       const shinigami = manifest["x-shinigami"] || ({})
       const suiteManaged = String(shinigami.suiteId || "")
-        === "hancore.shinigami"
+        === "hancore.shibumi"
       const group = shinigamiWidgetGroup(id)
       const replacementGroups = group === "" && bar
         && typeof bar.widgetReplacementGroups === "function"
@@ -771,7 +771,7 @@ ShinigamiPanel {
       ? manifest["x-shinigami"] : ({})
     const suiteManaged = nativeCatalogRequired
       ? suiteManagedPlugin(id)
-      : String(shinigami.suiteId || "") === "hancore.shinigami"
+      : String(shinigami.suiteId || "") === "hancore.shibumi"
     if (kinds.indexOf("bar-widget") >= 0) {
       const candidates = bar && typeof bar.conflictingLayoutProviderIds === "function"
         ? bar.conflictingLayoutProviderIds(id) : [id]

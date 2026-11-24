@@ -121,7 +121,7 @@ with (BASE / "native.log").open("xb") as log:
         marker = (BASE / "home/.config/omarchy/plugins"
                   / "shinigami.state/.shinigami-managed.json")
         marker.write_text(json.dumps({
-            "suiteId": "hancore.shinigami", "suitePayloadDigest": "d" * 64,
+            "suiteId": "hancore.shibumi", "suitePayloadDigest": "d" * 64,
         }), encoding="utf-8")
         for _ in range(30):
             services = ipc("native-runtime-probe", "scopedServiceRoster")

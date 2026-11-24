@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUITE_ID = "hancore.shinigami"
+SUITE_ID = "hancore.shibumi"
 NATIVE_SECTIONS = ("left", "centerBegin", "center", "centerEnd", "right", "tray")
 MANAGED_MARKER = ".shinigami-managed.json"
 STATUS_ORDER = {"error": 0, "warning": 1, "ok": 2, "info": 3}
