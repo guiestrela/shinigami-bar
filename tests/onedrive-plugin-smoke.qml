@@ -110,6 +110,8 @@ ShellRoot {
         "BarWidget did not borrow the process-wide OneDrive adapter")
       check(!targetWidget.item.oneDriveVisible && !otherWidget.item.oneDriveVisible,
         "OneDrive panel started visible without an IPC target")
+      console.log("onedrive fixture screens", screens.length, screens[0].name,
+        standaloneService.screenListOverride.length)
       check(standaloneService.openPanel("account-fixture", screens[0]),
         "service could not open the OneDrive panel on the target output")
       phase = 1
