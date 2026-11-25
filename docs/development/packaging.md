@@ -1,8 +1,9 @@
 # Source installation and OPR packaging
 
-Status: `0.2.5` source and package workflows. `shinigami-shell` has been in
-`omacom/omarchy-pkgs` since 0.2.0 (2026-11-04), reaching the `edge` ring first.
-AUR publication is not a target.
+Status: `0.2.5` source installation and local package workflows. The
+`shinigami-shell` package scaffold is prepared for future publication through
+`omacom/omarchy-pkgs`, but the package is not yet available through
+`omarchy pkg`. AUR publication is not a target.
 
 Shinigami ships one versioned suite containing 27 separately validated Omarchy
 Quattro plugin roots. Pacman owns the immutable program files; the Shinigami
@@ -154,10 +155,12 @@ For every release, retain these source, package and acceptance requirements:
 6. OPR's package checks pass against the pinned release archive. The local
    `scripts/check-aur-package --publish-check` validates the remote tag and
    asset; it is not an OPR submission gate or an AUR publication target.
-7. The OPR update is accepted and installation is repeated from a clean
-   supported Omarchy Quattro account.
+7. Before publication, the OPR update is accepted and installation is repeated
+   from a clean supported Omarchy Quattro account.
 
-After each GitHub release, open an `update-shinigami-shell-<version>` pull request
-in `omacom/omarchy-pkgs`. The package reaches `edge` first; later rings follow
-Omarchy's promotion. OPR updates remain separate from local package construction
-and validation-system lifecycle acceptance.
+After publication is authorized, open an
+`update-shinigami-shell-<version>` pull request in `omacom/omarchy-pkgs`. The
+package reaches `edge` first; later rings follow Omarchy's promotion. Until then,
+`omarchy pkg` does not provide Shinigami and the source route remains current.
+OPR updates remain separate from local package construction and
+validation-system lifecycle acceptance.

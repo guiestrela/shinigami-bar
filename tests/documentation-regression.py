@@ -348,9 +348,11 @@ def main() -> None:
     bash_blocks = bash_pattern.findall(readme)
     install_guide = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
     readme_install = readme.split("\n## Install\n", 1)[1].split("\n## ", 1)[0]
+    if not readme_install.split("\n### ", 1)[0].count("```bash"):
+        fail("README installation section must show the source commands first")
     source_commands = []
     for source in (
-        readme_install.split("\n### From source\n", 1)[1],
+        readme_install,
         install_guide.split("\n## Install from source\n", 1)[1].split("\n## ", 1)[0],
     ):
         commands = [
@@ -366,23 +368,14 @@ def main() -> None:
     if source_commands[0] != source_commands[1]:
         fail("README and install guide source commands have drifted")
 
-    package_install_commands = [
-        "omarchy pkg add shinigami-shell",
-        "shinigami-shell install --dry-run",
-        "shinigami-shell install --yes",
-    ]
-    guide_package = install_guide.split(
-        "\n## Install from a package\n", 1
-    )[1].split("\n## ", 1)[0]
-    for command in package_install_commands:
-        if command not in readme_install or command not in guide_package:
-            fail("README and install guide must show the package install commands")
+    for block in bash_pattern.findall(readme_install + install_guide):
+        if "omarchy pkg add shinigami-shell" in block:
+            fail("documentation must not provide an unpublished omarchy pkg install command")
     for command in (
-        "omarchy update",
-        "shinigami-shell update --dry-run",
-        "shinigami-shell update --yes",
-        "shinigami-shell uninstall --dry-run",
-        "omarchy pkg drop shinigami-shell",
+        "./scripts/shinigami-suite update --dry-run",
+        "./scripts/shinigami-suite update --yes",
+        "./scripts/shinigami-suite status",
+        "./scripts/shinigami-suite uninstall --dry-run",
     ):
         if command not in readme:
             fail(f"README landing page is missing lifecycle command: {command}")
@@ -420,11 +413,9 @@ def main() -> None:
                 "current documentation does not report the authoritative "
                 f"{plugin_count}-root count: {relative}"
             )
-    uninstall_command = (
-        "shinigami-shell uninstall --yes && omarchy pkg drop shinigami-shell"
-    )
-    if sum(uninstall_command in block for block in bash_blocks) != 1:
-        fail("README landing page is missing the package uninstall command")
+    for block in bash_blocks:
+        if "omarchy pkg drop shinigami-shell" in block:
+            fail("README must not provide a package removal command for an unpublished package")
     source_uninstall_command = "./scripts/shinigami-suite uninstall --yes"
     if sum(source_uninstall_command in block for block in bash_blocks) != 1:
         fail("README landing page is missing the source uninstall command")

@@ -26,29 +26,13 @@ keeps per-row removal and "Clear all". On Omarchy 4.5.0, Clear all hides every r
 the host's history locally; ✕ hides one row; the host's history.json is not modified.
 Live rows remain unavailable through the host proxy on both.
 
-## Install from a package
+## Package status
 
-`shinigami-shell` is published through Omarchy's package repository. Install
-the package, then stage and verify the suite as the desktop user. Pacman owns
-only the immutable payload; the lifecycle command owns the 27 plugin roots and
-all user state.
-
-```bash
-omarchy pkg add shinigami-shell
-shinigami-shell install --dry-run
-shinigami-shell install --yes
-```
-
-A package installation requires an admitted Shinigami release identity. The
-`packaging/` directory remains available for local package builds; it is not
-required when installing from the published package.
-
-To install the package payload without replacing the active bar or its widget
-layout, use:
-
-```bash
-shinigami-shell install --no-activate --keep-layout --yes
-```
+Shinigami is not yet published in Omarchy's package repository. The
+`packaging/` directory contains a local package scaffold and validation tools,
+but `omarchy pkg add shinigami-shell` is not a current installation command.
+Use [Install from source](#install-from-source) for the supported installation
+route.
 
 ## Install from source
 
@@ -134,23 +118,9 @@ directories, invalid state, and unfinished predecessor transactions.
 
 ## Update
 
-Run `shinigami-shell update` and `shinigami-shell uninstall` (or their source equivalents)
-from a terminal inside the Hyprland session. Plain SSH cannot reach the compositor
-for the shell restart; it can hang and leave an interrupted transaction, recovered
-by the next run from a session terminal.
-
-For a package installation, update the system package through Omarchy and then
-stage the new immutable payload into the current user's shell:
-
-```bash
-omarchy update
-shinigami-shell update --dry-run
-shinigami-shell update --yes
-```
-
-Pacman updating `/usr/share/shinigami-shell` does not silently change a running
-desktop. The explicit update validates, stages, reloads, and verifies all 27
-plugins as one transaction.
+Run lifecycle commands from a terminal inside the Hyprland session. Plain SSH
+cannot reach the compositor for the shell restart; it can hang and leave an
+interrupted transaction, recovered by the next run from a session terminal.
 
 From the accepted Shinigami checkout:
 
@@ -159,6 +129,10 @@ From the accepted Shinigami checkout:
 ./scripts/shinigami-suite update --yes
 ./scripts/shinigami-suite status
 ```
+
+The `shinigami-shell` equivalents apply only to a locally built, installed
+package. No update is available through `omarchy pkg` while the package remains
+unpublished.
 
 An update requires a suite-managed Shinigami installation. It stages all 27
 current plugin roots as one transaction and verifies that the shell executes
@@ -190,9 +164,10 @@ For a source checkout outside the admitted identities, follow
 [supervised recovery](#supervised-recovery). Do not bypass admission by manually
 deleting lifecycle state, journals, markers, or plugin directories.
 
-### Move from a checkout to the package
+### Move from a checkout to a local package
 
-Install the package without uninstalling the existing suite, then run:
+This route applies only after building and installing the package locally.
+Install it without uninstalling the existing suite, then run:
 
 ```bash
 shinigami-shell update --dry-run
@@ -330,32 +305,23 @@ restores the managed layout.
 
 Run these commands from a terminal inside the Hyprland session, not plain SSH.
 
-For a package installation, remove the user-scoped suite first and the system
-package second:
-
-```bash
-shinigami-shell uninstall --dry-run
-shinigami-shell uninstall --yes
-omarchy pkg drop shinigami-shell
-```
-
-This order keeps the lifecycle command and immutable payload available until
-the stock Omarchy bar, menu routing, plugin roots, and installation state have
-been restored or removed. Pacman removal by itself intentionally does not
-mutate user configuration. Uninstall uses Quattro's supported full shell
-restart before removing the complete provider tree. Install, activate,
-deactivate, and migration use the same boundary; this avoids racing Qt's live
-QML loaders during a wholesale bar-owner transition.
-
-For a source installation, preview and remove all managed Shinigami plugins with:
+For a source installation, preview and remove all managed Shinigami plugins:
 
 ```bash
 ./scripts/shinigami-suite uninstall --dry-run
 ./scripts/shinigami-suite uninstall --yes
 ```
 
-Do not follow the source uninstall with `omarchy pkg drop shinigami-shell`.
-The source workflow did not install a package with that name.
+For a locally built package installation, remove the user-scoped suite with
+`shinigami-shell uninstall` before removing the system package. Pacman removal
+by itself intentionally does not mutate user configuration. Uninstall uses
+Quattro's supported full shell restart before removing the complete provider
+tree. Install, activate, deactivate, and migration use the same boundary; this
+avoids racing Qt's live QML loaders during a wholesale bar-owner transition.
+
+Do not run `omarchy pkg drop shinigami-shell` for a source installation.
+The source workflow did not install a package with that name, and that package
+is not yet available from the Omarchy repository.
 Its Pacman-managed runtime dependencies remain installed because they may be
 shared with Omarchy or other software.
 

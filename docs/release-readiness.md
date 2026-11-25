@@ -373,8 +373,9 @@ was performed. Each operation needs its own maintainer Go.
   and splits while retaining other settings and V2. `--keep-settings` does not prevent this.
   Back up the settings before a downgrade (see install.md) and restore them with a matching
   payload.
-- Packaging: `shinigami-shell` is published through omarchy-pkgs (omacom/omarchy-pkgs#2119,
-  2026-11-04); AUR is not the target.
+- Packaging: the `shinigami-shell` package scaffold is prepared, but the package is not yet
+  available through `omarchy pkg`; publication through omarchy-pkgs remains pending. AUR is
+  not the target.
 
 ## Immutable asset and publication gate
 
