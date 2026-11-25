@@ -84,6 +84,9 @@ Item {
 
   function closeForPopoutSwitch() { return closeOneDrive() }
 
+  // ShinigamiPanel dismisses through its owner rather than closing itself.
+  function close() { return closeOneDrive() }
+
   function syncOneDriveOverlay() {
     if (!oneDriveVisible) {
       oneDriveOverlayLoader.source = ""

@@ -28,7 +28,8 @@ hosts = {Path(sys.argv[2])} | {Path(v) for k, v in os.environ.items() if k in (
     'SHINIGAMI_FORWARD_COMPAT_OMARCHY_PATH', 'SHINIGAMI_NATIVE_CATALOG_OMARCHY_PATH') and v}
 # Namespace, marker, package name, and a validated dynamic collector prefix.
 # omarchy-exec-argv is a notification hint consumed by Omarchy's daemon, not an executable.
-noncommands = {'omarchy-keyboard-panel', 'omarchy-screenrecord-filename', 'omarchy-dev', 'omarchy-agent-usage-', 'omarchy-exec-argv'}
+# omarchy-background is the host layer namespace retained by the wallpaper service.
+noncommands = {'omarchy-keyboard-panel', 'omarchy-screenrecord-filename', 'omarchy-dev', 'omarchy-agent-usage-', 'omarchy-exec-argv', 'omarchy-background'}
 calendar_data_resource = '/io.github.guiestrela.omarchy-google-calendar-clock/bin/caldir'
 for host in sorted(hosts):
     assert (host / 'bin').is_dir(), f'missing host bin/: {host}'

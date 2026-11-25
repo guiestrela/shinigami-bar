@@ -1234,7 +1234,7 @@ Panel {
     }
   }
 
-  KeyboardPanel {
+  ShinigamiPanel {
     id: panel
     anchorItem: button
     owner: root

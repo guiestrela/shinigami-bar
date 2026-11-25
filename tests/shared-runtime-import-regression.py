@@ -293,13 +293,13 @@ class PresentationImports(unittest.TestCase):
             if PRESENTATION_LINE.strip() in source.read_text(encoding="utf-8"):
                 actual.add(source.relative_to(ROOT).as_posix())
         self.assertEqual(actual, PRESENTATION_IMPORTERS)
-        self.assertEqual(len(actual), 67)
+        self.assertEqual(len(actual), 66)
 
         contract = json.loads(
             (ROOT / "contracts/plugin-suite-v1.json").read_text())
         by_id = {row["id"]: row for row in contract["plugins"]}
         consumers = {name.split("/", 1)[0] for name in actual}
-        self.assertEqual(len(consumers), 22)
+        self.assertEqual(len(consumers), 21)
         self.assertLess(
             [row["id"] for row in contract["plugins"]].index(
                 "shinigami.state"),

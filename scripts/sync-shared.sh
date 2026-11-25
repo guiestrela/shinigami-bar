@@ -47,6 +47,8 @@ mappings=(
   "shared/presentation/ShinigamiPanel.qml:shinigami.temperature/ShinigamiPanel.qml"
   "shared/presentation/ShinigamiPanel.qml:shinigami.gpu/ShinigamiPanel.qml"
   "shared/presentation/ShinigamiPanel.qml:shinigami.storage/ShinigamiPanel.qml"
+  "shared/presentation/ShinigamiPanel.qml:shinigami.wallpaper-manager/ShinigamiPanel.qml"
+  "shared/presentation/ShinigamiPanel.qml:shinigami.onedrive/ShinigamiPanel.qml"
 )
 
 failed=0

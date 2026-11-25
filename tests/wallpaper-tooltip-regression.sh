@@ -10,8 +10,18 @@ fail() {
 }
 
 widget="$repo_root/shinigami.wallpaper-manager/BarWidget.qml"
+surface="$repo_root/shinigami.wallpaper-manager/ShinigamiPanel.qml"
 
 [[ -s $widget ]] || fail "wallpaper BarWidget.qml is missing"
+[[ -s $surface ]] || fail "wallpaper ShinigamiPanel.qml is missing"
+
+rg -Fq 'ShinigamiPanel {' "$widget" \
+  || fail "wallpaper panel does not use the Shinigami surface"
+if rg -Fq 'KeyboardPanel {' "$widget"; then
+  fail "wallpaper panel still uses the host KeyboardPanel surface"
+fi
+cmp -s "$surface" "$repo_root/shared/presentation/ShinigamiPanel.qml" \
+  || fail "wallpaper ShinigamiPanel.qml drifted from the canonical surface"
 
 # The panel must not paint its own tooltip surface. It delegates to the bar's
 # canonical tooltip overlay, which supplies the shared V1/V2 appearance and

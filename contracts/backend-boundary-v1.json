@@ -436,7 +436,7 @@
     {"value":"omarchy-dev","count":2,"category":"hostIntegration","owner":"quattro.host","capability":"bar-host-routing"},
     {"value":"omarchy-exec-argv","count":2,"category":"omarchyAction","owner":"shinigami.onedrive","capability":"onedrive","reason":"OneDrive notifications carry Omarchy's argv-only execution hint to the standalone Shinigami OneDrive service, which owns the notification IPC."},
     {"value":"omarchy-hyprland-focus-app","count":1,"category":"omarchyAction","owner":"quattro.host","capability":"notifications","reason":"NotificationAdapter.qml invokes the public focus helper through an argv-only Process for Recent entries; it neither launches apps nor replays notification actions."},
-    {"value":"omarchy-keyboard-panel","count":18,"category":"hostIntegration","owner":"quattro.host","capability":"bar-host-routing"},
+    {"value":"omarchy-keyboard-panel","count":20,"category":"hostIntegration","owner":"quattro.host","capability":"bar-host-routing"},
     {"value":"omarchy-launch-terminal","count":2,"category":"omarchyAction","owner":"shinigami.onedrive","capability":"onedrive","reason":"OneDrive login and repair stay interactive through Omarchy's terminal launcher; the widget owns no terminal surface."},
     {"value":"omarchy-launch-floating-terminal-with-presentation","count":4,"category":"omarchyAction","owner":"quattro.host","capability":"bar-host-routing"},
     {"value":"omarchy-google-calendar-clock","count":1,"category":"nativeApi","owner":"shinigami.center","capability":"calendar-agenda"},

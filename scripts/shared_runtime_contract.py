@@ -109,7 +109,6 @@ PRESENTATION_IMPORTERS = frozenset({
     "shinigami.network/BarWidget.qml",
     "shinigami.network/NetworkPanel.qml",
     "shinigami.onedrive/BarWidget.qml",
-    "shinigami.wallpaper-manager/BarWidget.qml",
     "shinigami.power-profile/BarWidget.qml",
     "shinigami.power-profile/PowerProfilePanel.qml",
     "shinigami.quick-access/BarWidget.qml",

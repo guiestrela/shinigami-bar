@@ -70,9 +70,26 @@ jq -e --arg version "$version" '
 ' "$manifest" >/dev/null || fail "standalone OneDrive manifest shape drifted"
 
 for entry in BarWidget.qml Service.qml OneDriveService.qml OneDriveOverlay.qml \
-  OneDriveRiseRoot.qml; do
+  OneDriveRiseRoot.qml ShinigamiPanel.qml; do
   [[ -s "$plugin/$entry" ]] || fail "OneDrive entry point missing: $entry"
 done
+
+overlay="$plugin/OneDriveOverlay.qml"
+rg -Fq 'ShinigamiPanel {' "$overlay" \
+  || fail "OneDrive panel does not use the Shinigami surface"
+if rg -Fq 'PanelWindow {' "$overlay"; then
+  fail "OneDrive still owns a second panel window surface"
+fi
+cmp -s "$plugin/ShinigamiPanel.qml" \
+  "$repo_root/shared/presentation/ShinigamiPanel.qml" \
+  || fail "OneDrive ShinigamiPanel.qml drifted from the canonical surface"
+rg -Fq 'function close() { return closeOneDrive() }' "$bar_widget" \
+  || fail "OneDrive panel owner cannot close through the canonical surface"
+rg -Fq 'id: panelContent' "$overlay" \
+  || fail "OneDrive panel content is not wrapped for the canonical surface"
+if rg -q '^  Connections \{' "$overlay"; then
+  fail "a non-item OneDrive object is a direct child of the panel surface"
+fi
 
 jq -e '
   .suiteId == "hancore.shibumi"
