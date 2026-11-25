@@ -473,6 +473,27 @@ def _validate_activation(
             raise AdmissionError("activation layout is malformed or unbounded")
 
     installed = set(state.get("plugins") or ())
+    configured_bar = activation.get("configuredBar")
+    configured_bar_ok = isinstance(configured_bar, str) and bool(
+        PLUGIN_ID_PATTERN.fullmatch(configured_bar)
+    )
+    current_ok = (
+        state.get("activeBar") == profile.active_bar
+        and activation.get("activeBar") == profile.active_bar
+        and activation.get("enableServices") == list(profile.enable_services)
+        and activation.get("continuityPlugins") == continuity
+        and configured_bar_ok
+        and (
+            mode != "managed"
+            or (
+                configured_bar == profile.active_bar
+                and layout == {
+                    region: list(profile.layout[region])
+                    for region in ("left", "center", "right")
+                }
+            )
+        )
+    )
     archived_install = any(
         set(identity.get("pluginIds") or ()) == installed
         and all(
@@ -481,53 +502,29 @@ def _validate_activation(
         )
         for identity in identities
     )
-    if archived_install:
+    archived_ok = False
+    if archived_install and configured_bar_ok:
         active_bar = state.get("activeBar")
-        configured_bar = activation.get("configuredBar")
         enable_services = activation.get("enableServices")
-        if (
-            active_bar not in installed
-            or activation.get("activeBar") != active_bar
-            or not isinstance(configured_bar, str)
-            or not PLUGIN_ID_PATTERN.fullmatch(configured_bar)
-            or configured_bar not in installed
-            or not isinstance(enable_services, list)
-            or not set(enable_services) <= installed
-            or activation.get("continuityPlugins") not in (
+        archived_ok = (
+            active_bar in installed
+            and activation.get("activeBar") == active_bar
+            and isinstance(enable_services, list)
+            and set(enable_services) <= installed
+            and activation.get("continuityPlugins") in (
                 continuity, archived_continuity
             )
-            or any(
-                item not in installed
+            and all(
+                item in installed
                 for values in layout.values()
                 for item in values
             )
-            or (mode == "managed" and configured_bar != active_bar)
-        ):
-            raise AdmissionError(
-                "unknown archived activation ownership metadata; "
-                "no recovery or mutation was attempted"
-            )
-        return
-
-    if (
-        state.get("activeBar") != profile.active_bar
-        or activation.get("activeBar") != profile.active_bar
-        or activation.get("enableServices") != list(profile.enable_services)
-        or activation.get("continuityPlugins") != continuity
-        or not isinstance(activation.get("configuredBar"), str)
-        or not PLUGIN_ID_PATTERN.fullmatch(activation["configuredBar"])
-    ):
+            and (mode != "managed" or configured_bar == active_bar)
+        )
+    if not (current_ok or archived_ok):
         raise AdmissionError(
             "unknown activation ownership metadata; no recovery or mutation was attempted"
         )
-    if mode == "managed" and (
-        activation["configuredBar"] != profile.active_bar
-        or layout != {
-            region: list(profile.layout[region])
-            for region in ("left", "center", "right")
-        }
-    ):
-        raise AdmissionError("managed activation layout is not the exact profile layout")
 
 
 def classify_install_state(
