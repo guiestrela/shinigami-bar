@@ -7,6 +7,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "../shinigami.state/lib/presentation" as Presentation
 
 // Local Rise-style restyle; stock signal/click paths preserved.
 // Bar icon + settings panel for the folder-backed background service.
@@ -319,6 +320,17 @@ Panel {
 
   // Follow the active Shinigami bar instead of the Commons control palette.
   readonly property var barTokens: bar && "visualTokens" in bar ? bar.visualTokens : null
+  readonly property var shinigamiTokens: root.barTokens
+  readonly property string tooltipShellStyle: root.barTokens
+    && root.barTokens.shellStyle !== undefined
+    ? String(root.barTokens.shellStyle) : "shinigami"
+  readonly property color controlForeground: root.fg
+  readonly property color controlBorderColor: root.barTokens
+    && root.barTokens.separator !== undefined
+    ? root.barTokens.separator : root.fg
+  readonly property color controlFillColor: root.barTokens
+    && root.barTokens.fillIdle !== undefined
+    ? root.barTokens.fillIdle : Commons.Color.tooltip.background
   readonly property color panelAccent: barTokens ? barTokens.seal
     : (bar && bar.urgent ? bar.urgent : Commons.Color.accent)
   readonly property color panelInk: barTokens ? barTokens.ink : fg
@@ -391,28 +403,18 @@ Panel {
 
     Behavior on color { ColorAnimation { duration: Style.duration(120) } }
 
-    ToolTip {
-      visible: riseButton.tooltipText !== "" && mouse.containsMouse
+    Presentation.ShinigamiPillToolTip {
+      panel: root
+      visible: root.tooltipShellStyle === "shinigami"
+        && riseButton.tooltipText !== "" && mouse.containsMouse
       text: riseButton.tooltipText
-      delay: 400
-      padding: 0
-      background: Rectangle {
-        color: Commons.Color.tooltip.background
-        border.color: Commons.Color.tooltip.border
-        border.width: 1
-        radius: 4
-      }
-      contentItem: Text {
-        textFormat: Text.PlainText
-        text: riseButton.tooltipText
-        color: Commons.Color.tooltip.text
-        font.family: riseButton.fontFamily
-        font.pixelSize: Style.font.bodySmall
-        leftPadding: Style.space(8)
-        rightPadding: Style.space(8)
-        topPadding: Style.space(4)
-        bottomPadding: Style.space(4)
-      }
+    }
+
+    Presentation.ShinigamiPanelToolTip {
+      panel: root
+      visible: root.tooltipShellStyle !== "shinigami"
+        && riseButton.tooltipText !== "" && mouse.containsMouse
+      text: riseButton.tooltipText
     }
 
     Row {

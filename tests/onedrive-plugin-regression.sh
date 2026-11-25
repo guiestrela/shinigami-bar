@@ -116,12 +116,25 @@ rg -Fq 'text: Tokens.Style.theme.tooltipInk' \
 rg -Fq 'readonly property real tooltipRadius: token("tooltipRadius", 6)' \
   "$plugin/OneDriveRiseRoot.qml" \
   || fail "OneDrive tooltip radius does not come from the bar tokens"
-rg -Fq '? Tokens.Style.theme.tooltipRadius : Tokens.Style.tooltipRadius' \
+rg -Fq '? theme.tooltipRadius : Tokens.Style.tooltipRadius' \
   "$plugin/integration/ui/PanelToolTip.qml" \
   || fail "OneDrive panel tooltip frame does not use the bar tooltip radius"
-rg -Fq '? Tokens.Style.theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth' \
+rg -Fq '? theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth' \
   "$plugin/integration/ui/PanelToolTip.qml" \
   || fail "OneDrive panel tooltip frame does not use the bar border width"
+rg -Fq 'delay: 320' "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip does not use the bar tooltip delay"
+rg -Fq 'property string fontFamily' "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip lost its fontFamily API"
+rg -Fq 'property real fontSize: 12' "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip does not use the bar tooltip font size"
+rg -Fq 'font.pixelSize: root.fontSize' "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip does not apply its font size"
+rg -Fq 'font.letterSpacing: 1' "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip does not use the bar tooltip letter spacing"
+rg -Fq 'leftPadding: root.resolvedBorderWidth + Tokens.Style.space(10)' \
+  "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip does not use the bar tooltip padding"
 rg -Fq 'id: headerActions' "$plugin/integration/Panel.qml" \
   || fail "OneDrive panel has no header action row"
 rg -Fq 'tooltipText: "Close"' "$plugin/integration/Panel.qml" \

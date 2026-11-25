@@ -1,63 +1,55 @@
-import QtQuick
-import "../../components" as CommonComponents
-import "." as Tokens
-import "Border.js" as Border
-import QtQuick.Controls
+pragma ComponentBehavior: Bound
 
-// Styled wrapper around Qt Quick Controls ToolTip. Drop-in: declare inside
-// the hovered item and bind `visible` to the hover state, e.g.
-//   Tokens.PanelToolTip {
-//     visible: mouse.containsMouse
-//     text: "Forget network"
-//   }
-//
-// Defaults pull from [tooltip] in shell.toml via Tokens.Color.tooltip.*. Override
-// the panel* properties per-instance only when you need a tooltip that
-// intentionally diverges from the theme.
-//
-// Property names are prefixed `panel*` to avoid clashing with ToolTip's
-// built-in `background`/`font` properties.
+import QtQuick
+import QtQuick.Controls
+import "." as Tokens
+
+// Panel tooltip following the Shinigami/Rise bar surface recipe.
+// Colors and radius come from the OneDrive theme facade, which is fed by the
+// live Shinigami bar tokens, so the tooltip matches the bar and Rise Bar.
 ToolTip {
   id: root
 
-  property color panelForeground: Tokens.Style.theme
-      && Tokens.Style.theme.tooltipInk !== undefined
-    ? Tokens.Style.theme.tooltipInk : Tokens.Color.tooltip.text
-  property color panelBackground: Tokens.Style.theme
-      && Tokens.Style.theme.tooltipBackground !== undefined
-    ? Tokens.Style.theme.tooltipBackground : Tokens.Color.tooltip.background
-  property color panelBorder: Tokens.Style.theme
-      && Tokens.Style.theme.panelOuterBorderColor !== undefined
-    ? Tokens.Style.theme.panelOuterBorderColor : Tokens.Color.tooltip.border
-  property real panelBorderWidth: Tokens.Style.theme
-      && Tokens.Style.theme.panelOuterBorderW !== undefined
-    ? Tokens.Style.theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth
-  property real panelRadius: Tokens.Style.theme
-      && Tokens.Style.theme.tooltipRadius !== undefined
-    ? Tokens.Style.theme.tooltipRadius : Tokens.Style.tooltipRadius
-  property string fontFamily: Tokens.Style.font.family
-  property real fontSize: Tokens.Style.font.bodySmall
+  readonly property var theme: Tokens.Style.theme
+  property string fontFamily: theme && theme.mono ? theme.mono : Tokens.Style.font.family
+  property real fontSize: 12
+  readonly property color resolvedBackground: theme
+    && theme.tooltipBackground !== undefined
+    ? theme.tooltipBackground : Tokens.Color.tooltip.background
+  readonly property color resolvedBorderColor: theme
+    && theme.panelOuterBorderColor !== undefined
+    ? theme.panelOuterBorderColor : Tokens.Color.tooltip.border
+  readonly property real resolvedBorderWidth: theme
+    && theme.panelOuterBorderW !== undefined
+    ? theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth
+  readonly property color resolvedTextColor: theme
+    && theme.tooltipInk !== undefined
+    ? theme.tooltipInk : Tokens.Color.tooltip.text
+  readonly property string resolvedFontFamily: fontFamily !== "" ? fontFamily : Tokens.Style.font.family
+  readonly property real resolvedRadius: theme
+    && theme.tooltipRadius !== undefined
+    ? theme.tooltipRadius : Tokens.Style.tooltipRadius
 
-  readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Tokens.Color.tooltip.border, root.panelBorderWidth)
-
-  delay: 400
+  delay: 320
   padding: 0
 
-  background: Tokens.BorderSurface {
-    color: root.panelBackground
-    borderSpec: root.panelBorderSpec
-    radius: root.panelRadius
+  background: Rectangle {
+    color: root.resolvedBackground
+    border.color: root.resolvedBorderColor
+    border.width: root.resolvedBorderWidth
+    radius: root.resolvedRadius
   }
 
-  contentItem: CommonComponents.UiText {
-    textFormat: Text.PlainText
+  contentItem: Text {
     text: root.text
-    color: root.panelForeground
-    font.family: root.fontFamily
+    color: root.resolvedTextColor
+    font.family: root.resolvedFontFamily
     font.pixelSize: root.fontSize
-    leftPadding: Border.left(root.panelBorderSpec) + Tokens.Style.spacing.controlPaddingX
-    rightPadding: Border.right(root.panelBorderSpec) + Tokens.Style.spacing.controlPaddingX
-    topPadding: Border.top(root.panelBorderSpec) + Tokens.Style.spacing.controlPaddingY
-    bottomPadding: Border.bottom(root.panelBorderSpec) + Tokens.Style.spacing.controlPaddingY
+    font.letterSpacing: 1
+    leftPadding: root.resolvedBorderWidth + Tokens.Style.space(10)
+    rightPadding: root.resolvedBorderWidth + Tokens.Style.space(10)
+    topPadding: root.resolvedBorderWidth + Tokens.Style.space(4)
+    bottomPadding: root.resolvedBorderWidth + Tokens.Style.space(4)
+    renderType: Text.NativeRendering
   }
 }
