@@ -272,6 +272,9 @@ class Suite:
         except (OSError, json.JSONDecodeError) as error:
             raise ContractError(f"cannot read {manifest_path}: {error}") from error
         meta = manifest.get("x-shinigami")
+        if meta is None and spec.id.startswith("hancore.shibumi."):
+            # Archived releases used the predecessor manifest namespace.
+            meta = manifest.get("x-shibumi")
         entry_points = manifest.get("entryPoints")
         if (
             manifest.get("schemaVersion") != 1

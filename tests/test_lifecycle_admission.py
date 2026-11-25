@@ -76,7 +76,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
             "suiteVersion": identity["suiteVersion"],
             "profile": "default",
             "activeBar": "shinigami.bar",
-            "plugins": list(self.suite.profile("default").install),
+            "plugins": list(identity["pluginIds"]),
             "installOrigin": "package" if package else "checkout",
             "payloadRoot": "/usr/share/shinigami" if package else str(REPO_ROOT),
             "sourceRevision": revision,
@@ -157,12 +157,26 @@ class LifecycleAdmissionTests(unittest.TestCase):
             "records": [],
         }
 
+    def source_plugin_id(self, plugin_id: object) -> str:
+        current = str(plugin_id)
+        if current in self.suite.plugins:
+            return current
+        mapped = current.replace("hancore.shibumi.", "shinigami.", 1)
+        if mapped in self.suite.plugins:
+            return mapped
+        # The archived brightness widget became the current display manager.
+        if current == "hancore.shibumi.brightness":
+            return "shinigami.display-manager"
+        raise KeyError(f"no current source plugin for archived ID {current}")
+
     def materialize_live_state(
         self, state: dict[str, object], transaction: str
     ) -> None:
         for plugin_id in state["plugins"]:
             target = self.paths.plugin_dir / plugin_id
-            shutil.copytree(self.suite.plugins[plugin_id].source, target)
+            shutil.copytree(
+                self.suite.plugins[self.source_plugin_id(plugin_id)].source, target
+            )
             marker = {
                 "schemaVersion": 1,
                 "suiteId": "hancore.shibumi",
@@ -198,7 +212,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
         state = self.state_for(identity, revision)
         for plugin_id in state["plugins"]:
             shutil.copytree(
-                self.suite.plugins[plugin_id].source,
+                self.suite.plugins[self.source_plugin_id(plugin_id)].source,
                 self.paths.plugin_dir / plugin_id,
             )
         changed_payload = (
@@ -211,9 +225,9 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
 
         actual_plugin_digests = {
-            str(plugin_id): self.suite.plugins[str(plugin_id)].payload_digest(
-                self.paths.plugin_dir / str(plugin_id)
-            )
+            str(plugin_id): self.suite.plugins[
+                self.source_plugin_id(plugin_id)
+            ].payload_digest(self.paths.plugin_dir / str(plugin_id))
             for plugin_id in state["plugins"]
         }
         actual_suite_digest = suite_payload_digest(actual_plugin_digests)
@@ -239,7 +253,9 @@ class LifecycleAdmissionTests(unittest.TestCase):
                 json.dumps(marker) + "\n", encoding="utf-8"
             )
             self.assertEqual(
-                self.suite.plugins[str(plugin_id)].payload_digest(target),
+                self.suite.plugins[
+                    self.source_plugin_id(plugin_id)
+                ].payload_digest(target),
                 actual_plugin_digests[str(plugin_id)],
             )
         return state, changed_payload

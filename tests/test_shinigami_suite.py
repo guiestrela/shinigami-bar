@@ -35,6 +35,26 @@ PUBLISHED_BETA152_REVISION = "c45af77c8333b691ac36522247b6e5b5481a3666"
 PUBLISHED_BETA153_REVISION = "5b1d21f0cea73bb9e7997278a828b3ef295e6c94"
 PUBLISHED_BETA154_REVISION = "6594b989c9f5edfe557669b0413a9bd3e50f8e81"
 PUBLISHED_BETA16_REVISION = "4840482ec0e06a2ebd478120833d4fae1f30889e"
+
+
+def plugin_ids_at_revision(revision: str) -> list[str]:
+    """Read the plugin directory names recorded by a historical contract."""
+    contract = subprocess.run(
+        [
+            "git",
+            "--no-replace-objects",
+            "-C",
+            str(REPO_ROOT),
+            "show",
+            f"{revision}:contracts/plugin-suite-v1.json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    return [item["id"] for item in json.loads(contract)["plugins"]]
+
+
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 from shinigami_suite.admission import (  # noqa: E402
@@ -1376,7 +1396,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             [
                 "git", "--no-replace-objects", "archive", "--format=tar",
                 revision, "--", "contracts/plugin-suite-v1.json",
-                *self.suite.plugins.keys(),
+                *plugin_ids_at_revision(revision),
             ],
             cwd=REPO_ROOT,
             check=True,
@@ -1458,8 +1478,11 @@ class SuiteLifecycleTests(unittest.TestCase):
                 "05548c8d9ffdf0d37962d6e423e2a0dc21b8cd91",
             )),
         )
-        payload_paths = ["contracts/plugin-suite-v1.json", *self.suite.plugins]
         for tag_revision, merges in releases:
+            payload_paths = [
+                "contracts/plugin-suite-v1.json",
+                *plugin_ids_at_revision(tag_revision),
+            ]
             for merge_revision in merges:
                 with self.subTest(tag=tag_revision, merge=merge_revision):
                     result = subprocess.run(
@@ -1900,11 +1923,11 @@ class SuiteLifecycleTests(unittest.TestCase):
             source_revision = "12763c6874a9af02fa8e038ab520a409c60f8dc2"
         suite_contract_path = self.source / "contracts/plugin-suite-v1.json"
         suite_contract = json.loads(suite_contract_path.read_text(encoding="utf-8"))
-        plugin_ids = [item["id"] for item in suite_contract["plugins"]]
+        current_plugin_ids = [item["id"] for item in suite_contract["plugins"]]
         metadata_source = REPO_ROOT / "packaging/package-metadata.json"
         if source_revision is not None:
-            for plugin_id in plugin_ids:
-                shutil.rmtree(self.source / plugin_id)
+            for plugin_id in current_plugin_ids:
+                shutil.rmtree(self.source / plugin_id, ignore_errors=True)
             archive = subprocess.run(
                 [
                     "git",
@@ -1914,7 +1937,7 @@ class SuiteLifecycleTests(unittest.TestCase):
                     "archive",
                     source_revision,
                     "--",
-                    *plugin_ids,
+                    *plugin_ids_at_revision(source_revision),
                     "contracts/plugin-suite-v1.json",
                     "packaging/package-metadata.json",
                 ],
@@ -2328,7 +2351,7 @@ class SuiteLifecycleTests(unittest.TestCase):
                 "--format=tar",
                 "v0.1.1-beta.7",
                 "contracts/plugin-suite-v1.json",
-                *self.suite.plugins.keys(),
+                *plugin_ids_at_revision("v0.1.1-beta.7"),
             ],
             cwd=REPO_ROOT,
             check=True,
@@ -2338,11 +2361,12 @@ class SuiteLifecycleTests(unittest.TestCase):
             stream.extractall(beta7_source, filter="data")
         beta7_suite = Suite.load(beta7_source)
         control_id = "shinigami.control-center"
+        historical_control_id = "hancore.shibumi.control-center"
         self.assertEqual(beta7_suite.version, "0.1.1-beta.7")
-        self.assertNotIn("service", beta7_suite.plugins[control_id].kinds)
+        self.assertNotIn("service", beta7_suite.plugins[historical_control_id].kinds)
         self.assertIn("service", self.suite.plugins[control_id].kinds)
         self.assertNotEqual(
-            beta7_suite.plugins[control_id].payload_digest(),
+            beta7_suite.plugins[historical_control_id].payload_digest(),
             self.suite.plugins[control_id].payload_digest(),
         )
 

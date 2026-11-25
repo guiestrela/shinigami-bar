@@ -378,24 +378,37 @@ def _identity_diagnostic(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_identity_tuple(state: dict[str, Any], suite: Suite) -> None:
+def _validate_identity_tuple(
+    state: dict[str, Any], suite: Suite, identities: list[dict[str, Any]]
+) -> None:
     suite_version = state.get("suiteVersion")
     plugin_ids = state.get("plugins")
     plugin_digests = state.get("pluginDigests")
-    expected_plugin_ids = set(suite.profile(str(state["profile"])).install)
+    # Archived releases use the original plugin namespace and roster. A state
+    # may only match an admitted identity for the same suite version, never an
+    # arbitrary mixture of current and retired plugin IDs.
+    allowed_plugin_ids = {
+        frozenset(suite.profile(str(state["profile"])).install)
+    }
+    if isinstance(suite_version, str):
+        allowed_plugin_ids.update(
+            frozenset(identity["pluginIds"])
+            for identity in identities
+            if identity.get("suiteVersion") == suite_version
+            and isinstance(identity.get("pluginIds"), list)
+        )
     if (
         not isinstance(suite_version, str)
         or len(suite_version) > 128
         or not SUITE_VERSION_PATTERN.fullmatch(suite_version)
         or not isinstance(plugin_ids, list)
-        or len(plugin_ids) != len(expected_plugin_ids)
         or any(
             not isinstance(plugin_id, str)
             or not PLUGIN_ID_PATTERN.fullmatch(plugin_id)
             for plugin_id in plugin_ids
         )
         or len(plugin_ids) != len(set(plugin_ids))
-        or set(plugin_ids) != expected_plugin_ids
+        or not any(frozenset(plugin_ids) == allowed for allowed in allowed_plugin_ids)
         or not isinstance(plugin_digests, dict)
         or set(plugin_digests) != set(plugin_ids)
         or any(
@@ -582,7 +595,7 @@ def classify_install_state(
     ):
         raise AdmissionError("checkout installation authority metadata is inconsistent")
     _validate_activation(state, suite)
-    _validate_identity_tuple(state, suite)
+    _validate_identity_tuple(state, suite, identities)
 
     matches = [item for item in identities if _identity_matches(state, item)]
     if len(matches) != 1:
@@ -1689,7 +1702,10 @@ def _validate_live_markers(
     observed: set[str] = set()
     for target in sorted(paths.plugin_dir.iterdir(), key=lambda item: item.name):
         plugin_id = target.name
-        if not plugin_id.startswith("shinigami"):
+        if not (
+            plugin_id.startswith("shinigami")
+            or plugin_id.startswith("hancore.shibumi.")
+        ):
             continue
         observed.add(plugin_id)
         if state is None or plugin_id not in expected:

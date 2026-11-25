@@ -356,7 +356,7 @@ class PackageReleaseTests(unittest.TestCase):
                 "suiteVersion": "0.2.5",
                 "sourceRevisions": ["package:0.2.5"],
                 "settingsStorageVersion": 1,
-                "payloadDigest": "6eb8ce380d21ad8454c33357198f917d63a8a5458ed5a69ba87583cec083bc26",
+                "payloadDigest": "183f0a6d0308fbeb5ddb76ca227651dbc8c97d6f57fe0846e05300d18a310468",
             },
             "source-0.2.5": {
                 "suiteVersion": "0.2.5",
@@ -371,7 +371,10 @@ class PackageReleaseTests(unittest.TestCase):
                 state = states[identity_id]
                 for field, value in pinned.items():
                     self.assertEqual(state[field], value)
-                self.assertEqual(len(state["pluginIds"]), 27 if identity_id == "source-0.2.5" else 24)
+                expected_roster_size = (
+                    27 if identity_id in {"public-0.2.5", "source-0.2.5"} else 24
+                )
+                self.assertEqual(len(state["pluginIds"]), expected_roster_size)
                 self.assertEqual(
                     set(state["pluginDigests"]), set(state["pluginIds"])
                 )
@@ -385,11 +388,14 @@ class PackageReleaseTests(unittest.TestCase):
                     digest.update(b"\0")
                 self.assertEqual(digest.hexdigest(), state["payloadDigest"])
 
-        # The archived release belongs to the original suite namespace.
-        published_roster = set(states["public-0.2.5"]["pluginIds"])
+        # Archived public releases keep the original namespace; the current
+        # package identity uses the active Shinigami roster.
+        archived_roster = set(states["public-0.2.4"]["pluginIds"])
         self.assertTrue(all(plugin.startswith("hancore.shibumi.")
-                            for plugin in published_roster))
-        self.assertFalse(published_roster.intersection(Suite.load(ROOT).plugins))
+                            for plugin in archived_roster))
+        current_roster = set(Suite.load(ROOT).plugins)
+        self.assertFalse(archived_roster.intersection(current_roster))
+        self.assertEqual(set(states["public-0.2.5"]["pluginIds"]), current_roster)
         self.assertNotIn(
             "package:0.1.1-beta.12",
             states["public-beta.12"]["sourceRevisions"],
