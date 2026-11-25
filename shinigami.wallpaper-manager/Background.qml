@@ -1,0 +1,1964 @@
+import Quickshell
+import Quickshell.Io
+import Quickshell.Wayland
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Shapes
+import QtMultimedia
+import qs.Commons
+import qs.Commons as Commons
+import qs.Ui
+
+// Cloned from omarchy.background and extended with folder mode.
+//
+// With no folder configured this behaves exactly like the stock plugin: one
+// image for every display, driven by the ~/.local/state/omarchy/current/background
+// symlink and the theme-transition IPC.
+//
+// With a folder configured, the image pool comes from that folder instead and
+// every display is dealt its own random pick. Theme switches still apply their
+// color payload — only the image choice is taken over — so `omarchy theme set`
+// keeps recoloring the bar correctly.
+//
+// AnimatedImage is used for the wallpaper layers so animated GIFs (and any
+// other animated format supported by Qt's image plugins) keep playing. Static
+// images use the same renderer and therefore follow exactly the same folder,
+// shuffle, pinning and scaling paths.
+//
+// All transition state is per-screen (keyed by screen name) in both modes; the
+// global mode simply fills every key with the same value. That keeps one code
+// path for the reveal animation.
+Item {
+  id: root
+
+  // Injected by the shell's service loader (see shell.qml ensureService).
+  property var shell: null
+  property var manifest: null
+  // OWE temporarily owns the background during native videos/theme intros.
+  property bool suspended: false
+
+  onSuspendedChanged: {
+    if (!suspended && hasServiceContext() && hasFolder()) {
+      syncDisplayedCurrentLink()
+      folderLinkRepairTimer.restart()
+    }
+  }
+
+  // Omarchy injects these after Component.onCompleted. Some replacement bars
+  // also construct a compatibility copy of this service, but give it a facade
+  // without barConfig. That copy must stay inert: otherwise it follows the
+  // primary screen's symlink and paints it OVER the real per-display windows.
+  // An empty barConfig is valid (stock/theme mode); a missing API is not.
+  readonly property bool serviceActive: hasServiceContext()
+
+  function hasServiceContext() {
+    return !!shell && !!manifest && ("barConfig" in shell) && !!shell.barConfig
+  }
+
+  readonly property string home: Quickshell.env("HOME")
+  readonly property string stagingCacheRoot: {
+    var configured = String(Quickshell.env("XDG_CACHE_HOME") || "")
+    var base = configured.startsWith("/") ? configured.replace(/\/+$/, "") : home + "/.cache"
+    return base + "/omarchy/wallpaperomarchymanager/pinned"
+  }
+  readonly property string stateHome: home + "/.local/state"
+  readonly property string currentBackgroundDirectory: stateHome + "/omarchy/current"
+  readonly property string currentBackgroundLink: stateHome + "/omarchy/current/background"
+  // The folder alias stays unchanged when Omarchy atomically replaces a theme.
+  // Invalidate cached names/decoder failures when the theme identity file changes.
+  function refreshThemeFolder() {
+    if (!root.serviceActive) return
+    var themeFolder = root.home + "/.local/state/omarchy/current/theme/backgrounds"
+    var names = root.screenNames()
+    for (var i = 0; i < names.length; i++) {
+      if (root.configFor(names[i]).folder === themeFolder) {
+        root.themeContentVersion += 1
+        configReload.restart()
+        return
+      }
+    }
+  }
+
+  FileView {
+    id: themeIdentityFile
+    path: root.stateHome + "/omarchy/current/theme.name"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: {
+      themeIdentityFile.reload()
+      root.refreshThemeFolder()
+    }
+  }
+  readonly property string pythonPath: "/usr/bin/python3"
+  readonly property string parentSegment: "." + "."
+  readonly property string linkPublisherPath: decodeURIComponent(
+    String(Qt.resolvedUrl("publish-current-background.py")).replace(/^file:\/\//, ""))
+  readonly property string pinStagerPath: decodeURIComponent(
+    String(Qt.resolvedUrl("stage-pinned-media.py")).replace(/^file:\/\//, ""))
+
+  // ------------------------------------------------------------- settings
+
+  readonly property string pluginId: (manifest && manifest.id) || "shinigami.wallpaper-manager"
+  // Third-party services receive PluginShellApi, not the host shell object.
+  // barConfig is the intentionally public, read-only view of the bar layout;
+  // using it keeps this service compatible with Omarchy's plugin isolation.
+  readonly property var settings: lookupSettings(shell ? shell.barConfig : null, pluginId)
+
+  readonly property bool perDisplay: setting("perDisplay", true) === true
+  readonly property int intervalSec: Math.max(0, Number(setting("intervalSec", 0)) || 0)
+
+  // ---------------------------------------------------- per-display config
+  //
+  // Each display can carry its own folder, mode and scaling, held under
+  // displayConfig keyed by output name. With perDisplayConfig off every
+  // display reads the shared "all" entry instead, so the two arrangements are
+  // one lookup rather than two code paths.
+  //
+  // Nothing migrates anything. A settings file written before this existed has
+  // folder and recursive at the top level, and the lookup falls back to them,
+  // so an install that never opens the panel keeps working and one that does
+  // is upgraded by the first edit.
+  readonly property bool perDisplayConfig: setting("perDisplayConfig", true) === true
+  readonly property var displayConfig: setting("displayConfig", null)
+
+  // An explicit per-display configuration must also use independent picks.
+  // Keep the legacy `perDisplay` switch for shared configuration, but do not
+  // let a stale `perDisplay: false` mirror displays that were configured
+  // separately.
+  readonly property bool independentDisplayPicks: perDisplayConfig || perDisplay
+
+  // What the rebuild below actually watches.
+  //
+  // `settings` is read out of shell.barConfig, and the shell replaces that
+  // whole object on every write to shell.json -- by any plugin, about any
+  // setting. `displayConfig` therefore arrives as a new object with identical
+  // contents whenever some other widget saves a checkbox, and QML compares var
+  // properties by reference: it cannot tell that nothing changed. Watching the
+  // serialised form can, which is the difference between a rescan when the
+  // folder is edited and a rescan every time anything anywhere is edited.
+  readonly property string displayConfigKey: JSON.stringify(displayConfig)
+
+  readonly property var defaultDisplayConfig: ({
+    folder: "", recursive: true, mode: "shuffle", pinned: "", scaling: "zoom"
+  })
+
+  function rawConfigFor(name) {
+    var dc = displayConfig
+    if (!dc || typeof dc !== "object") return null
+    var key = (perDisplayConfig && name) ? String(name) : "all"
+    if (dc[key] && typeof dc[key] === "object") return dc[key]
+    // A display plugged in after the others has no entry of its own yet;
+    // "all" is a better starting point than an empty folder.
+    if (dc.all && typeof dc.all === "object") return dc.all
+    return null
+  }
+
+  function configFor(name) {
+    var c = rawConfigFor(name)
+    var pick = function(key, legacy) {
+      if (c && c[key] !== undefined && c[key] !== null) return c[key]
+      return legacy
+    }
+    var folder = safePath(pick("folder", setting("folder", "")))
+    var pinned = safePath(pick("pinned", ""))
+    // A pinned image only has meaning inside a configured folder. Ignore
+    // stale pin data after the folder is cleared so the default Omarchy
+    // background path really becomes active again.
+    if (folder === "") pinned = ""
+    // A pinned image is selected from the configured folder by the UI. Keep
+    // that invariant when settings are edited externally as well.
+    var relativePinned = folder !== "" && pinned.indexOf(folder + "/") === 0
+      ? pinned.substring(folder.length + 1) : ""
+    if (folder !== "" && pinned !== "" && pinned !== folder
+        && (relativePinned === "" || relativePinned === root.parentSegment
+          || relativePinned.indexOf(root.parentSegment + "/") === 0
+          || relativePinned.indexOf("/" + root.parentSegment + "/") !== -1
+          || relativePinned.endsWith("/" + root.parentSegment))) pinned = ""
+    var mode = String(pick("mode", "shuffle"))
+    var scaling = String(pick("scaling", "zoom"))
+    return {
+      folder: folder,
+      recursive: pick("recursive", setting("recursive", true)) === true,
+      mode: mode === "single" ? "single" : "shuffle",
+      pinned: pinned,
+      scaling: ["zoom", "fitHeight", "fitWidth", "actual"].indexOf(scaling) !== -1 ? scaling : "zoom"
+    }
+  }
+
+  // Displays sharing a folder share a pool and a deal queue: dealing them
+  // independently would let the same image land on both at once and would
+  // undo the guarantee that every image shows before any repeats.
+  // JSON rather than a delimiter: a folder path may contain any character, so
+  // there is no separator that could be split back out again safely.
+  function poolKeyFor(name) {
+    var c = configFor(name)
+    return c.folder === "" ? "" : JSON.stringify([c.folder, c.recursive])
+  }
+
+  function poolKeyFolder(key) { try { return JSON.parse(key)[0] } catch (e) { return "" } }
+  function poolKeyRecursive(key) { try { return JSON.parse(key)[1] === true } catch (e) { return true } }
+
+  // ------------------------------------------------------------------ scaling
+  //
+  // Only "zoom" maps onto a QML fillMode. Fitting a single axis needs the
+  // image's natural size, so the other three are resolved to an explicit size
+  // here and drawn with fillMode Stretch -- exact dimensions, aspect already
+  // correct. Before the image has loaded its natural size reads as 0, so the
+  // box is returned and the picture simply fills until it knows better.
+  function scaledW(mode, natW, natH, boxW, boxH) {
+    if (natW <= 0 || natH <= 0) return boxW
+    if (mode === "actual") return natW
+    if (mode === "fitHeight") return natW * (boxH / natH)
+    return boxW
+  }
+
+  function scaledH(mode, natW, natH, boxW, boxH) {
+    if (natW <= 0 || natH <= 0) return boxH
+    if (mode === "actual") return natH
+    if (mode === "fitWidth") return natH * (boxW / natW)
+    return boxH
+  }
+
+  function distinctPoolKeys() {
+    var names = screenNames()
+    var seen = ({})
+    var keys = []
+    for (var i = 0; i < names.length; i++) {
+      var k = poolKeyFor(names[i])
+      if (k === "" || seen[k]) continue
+      seen[k] = true
+      keys.push(k)
+    }
+    return keys
+  }
+
+
+  readonly property bool shuffleOnWake: setting("shuffleOnWake", false) === true
+  // For the paths that still speak of a single folder -- the status IPC and
+  // the bar tooltip. The primary display's is the one a single-folder setup
+  // has anyway.
+  readonly property string folder: configFor(primaryScreenName()).folder
+
+  // Bindings may use folderMode freely. Imperative code must not: when the
+  // shell injects `shell` after construction this and its inputs all
+  // re-evaluate, and QML gives no ordering guarantee between a dependent
+  // binding and an onXChanged handler, so a handler reading it could still see
+  // the pre-change value. hasFolder() reads the settings directly.
+  readonly property bool folderMode: hasFolder()
+
+  // True when Wallpapers owns the wallpaper on any display, whether that display
+  // shuffles a folder or is pinned to one image.
+  function hasFolder() {
+    var names = screenNames()
+    for (var i = 0; i < names.length; i++) {
+      var c = configFor(names[i])
+      if (c.folder !== "" || c.pinned !== "") return true
+    }
+    return false
+  }
+
+  // True when at least one display would actually change. A display in single
+  // mode keeps its pinned image, so on an all-single desktop there is no next
+  // image to fetch and the bar hides the button rather than offering a no-op.
+  function hasShuffling() {
+    var names = screenNames()
+    for (var i = 0; i < names.length; i++) {
+      var c = configFor(names[i])
+      if (c.mode === "shuffle" && c.folder !== "") return true
+    }
+    return false
+  }
+
+  function setting(name, fallback) {
+    var value = settings ? settings[name] : undefined
+    return value === undefined || value === null ? fallback : value
+  }
+
+  // This plugin owns both a service and a bar widget, so its shell.json entry
+  // can live in either bar.layout.* (where the settings panel writes it, via
+  // setBarWidget) or plugins[] (where the clone originally enabled it). The
+  // bar entry wins so the panel's edits are what take effect.
+  function lookupSettings(config, id) {
+    if (!config || !id) return ({})
+    // PluginShellApi exposes barConfig directly, while older Omarchy builds
+    // passed a full shell config. Accept both shapes without reaching for the
+    // host shell object or its private top-level plugin settings.
+    var bar = config.bar && typeof config.bar === "object" ? config.bar : config
+    var sections = ["left", "center", "right"]
+    if (bar.layout) {
+      for (var s = 0; s < sections.length; s++) {
+        var list = bar.layout[sections[s]]
+        if (!Array.isArray(list)) continue
+        for (var i = 0; i < list.length; i++) {
+          if (list[i] && String(list[i].id) === id) return list[i]
+        }
+      }
+    }
+    if (Array.isArray(config.plugins)) {
+      for (var j = 0; j < config.plugins.length; j++) {
+        if (config.plugins[j] && String(config.plugins[j].id) === id) return config.plugins[j]
+      }
+    }
+    return ({})
+  }
+
+  function expandHome(path) {
+    if (!path) return ""
+    if (path === "~") return home
+    if (path.indexOf("~/") === 0) return home + path.substring(1)
+    return path
+  }
+
+  // shellQuote protects syntax, while this rejects control characters that
+  // would make the newline-delimited scan ambiguous. The size limit also
+  // prevents an accidental paste from creating an oversized command line.
+  function safePath(path) {
+    var value = expandHome(String(path || "").trim())
+    if (value.length > 4096 || !value.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(value) || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return ""
+    return value
+  }
+
+  // ------------------------------------------------------- transition state
+
+  // screenName -> path. Reassigned wholesale (never mutated) so the delegate
+  // bindings below actually re-evaluate.
+  property var displayedMap: ({})
+  property var incomingMap: ({})
+  property var oldMap: ({})
+
+  // The two persistent renderer slots are used as a ping-pong buffer. The
+  // inactive one decodes the next wallpaper and becomes the active one when
+  // the reveal finishes. Keeping that decoded renderer alive avoids loading
+  // the new wallpaper a second time just to turn it into the base layer.
+  property var slotAMap: ({})
+  property var slotBMap: ({})
+  property int frontSlot: 0
+  // Stable theme aliases can contain new bytes without changing a path.
+  // Only the incoming slot receives the new decoder generation.
+  property int themeContentVersion: 0
+  property int appliedThemeContentVersion: 0
+  property int slotAGeneration: 0
+  property int slotBGeneration: 0
+
+  // Global-mode bookkeeping, kept so the stock symlink/theme paths behave
+  // identically to upstream.
+  property string currentBackground: ""
+
+  property int backgroundVersion: 0
+  property int revealStartedVersion: -1
+  property int revealTimedOutVersion: -1
+  property int pendingThemeVersion: -1
+  property string pendingColorsRaw: ""
+  property string pendingShellRaw: ""
+  property real revealProgress: 1
+
+  // Screen names whose *incoming* image has decoded, plus the gate that lets
+  // every screen's incoming layer become visible at the same moment.
+  property var incomingReady: ({})
+  property var incomingFailed: ({})
+  property bool revealArmed: false
+
+  function imageUrl(path) {
+    return Util.fileUrl(path)
+  }
+
+  function screenNames() {
+    var screens = Quickshell.screens || []
+    var names = []
+    for (var i = 0; i < screens.length; i++) names.push(String(screens[i].name))
+    return names
+  }
+
+  // The first display provides the shared background symlink when needed.
+  function primaryScreenName() {
+    var names = screenNames()
+    if (!names.length) return ""
+    return names.slice().sort()[0]
+  }
+
+  // ------------------------------------------------------------- image pool
+
+  property bool poolLoaded: false
+
+  // Paths Qt refused to decode, kept as a set so each is only diagnosed once.
+  // A file can be in the folder and still be undecodable: larger than Qt's
+  // image allocation limit, truncated, or renamed to an extension it is not.
+  // The scan cannot tell -- only the decoder can -- so the pool is filtered
+  // here as failures surface rather than up front.
+  property var badImages: ({})
+
+  // poolKey -> [paths]. One entry per distinct folder in use, so two displays
+  // pointed at the same folder share both the pool and the deal queue below.
+  property var pools: ({})
+  // Pool freshness is consumed after pin selection; a later use rescans.
+  property bool pinnedPoolFresh: false
+  // Pins remain logical in transition maps; Qt receives only a private staged
+  // snapshot path after the no-follow helper has opened the source.
+  property var stagedPinnedPaths: ({})
+  property var stagedPinnedLeaseTokens: ({})
+  property var pendingPinnedLeaseReleases: []
+  property var inFlightPinnedLeaseReleases: []
+  property int pinnedLeaseReleaseRetryCount: 0
+  property int pinnedLeaseRenewalFailures: 0
+  property bool pinnedLeaseRenewalUnavailable: false
+  property var rendererSourcePaths: ({})
+  property var failedPinnedPaths: ({})
+  property string currentLinkSnapshotPath: ""
+  property string pendingCurrentLinkSnapshotPath: ""
+  property string inFlightCurrentLinkSnapshotPath: ""
+  property var uncertainCurrentLinkSnapshotPaths: []
+  property bool currentLinkStateReady: false
+  property string stagingPinFolder: ""
+  property string stagingPinPath: ""
+  property string stagingPinKey: ""
+
+
+  function poolFor(key) { return pools[key] || [] }
+
+  function usablePoolFor(key) {
+    var bad = badImages
+    return poolFor(key).filter(function(p) { return !bad[p] })
+  }
+
+  function hasPinned() {
+    var names = screenNames()
+    for (var i = 0; i < names.length; i++) {
+      var cfg = configFor(names[i])
+      if (cfg.mode === "single" && cfg.pinned !== "") return true
+    }
+    return false
+  }
+
+  function pinnedStageKey(folder, pinned, generation) {
+    if (folder === home + "/.local/state/omarchy/current/theme/backgrounds")
+      return JSON.stringify([folder, pinned, generation === undefined ? themeContentVersion : generation])
+    return JSON.stringify([folder, pinned])
+  }
+
+  function pinnedLogicalReferences() {
+    var referenced = ({})
+    var maps = serviceActive ? [displayedMap, incomingMap, oldMap, slotAMap, slotBMap] : []
+    for (var m = 0; m < maps.length; m++)
+      for (var screen in maps[m]) if (maps[m][screen]) referenced[String(maps[m][screen])] = true
+    if (serviceActive) {
+      var names = screenNames()
+      for (var i = 0; i < names.length; i++) {
+        var cfg = configFor(names[i])
+        if (cfg.mode === "single" && cfg.pinned) referenced[String(cfg.pinned)] = true
+      }
+    }
+    return referenced
+  }
+
+  function activeStagedSnapshots() {
+    var referenced = pinnedLogicalReferences()
+    var active = []
+    for (var key in stagedPinnedPaths) {
+      try {
+        var parts = JSON.parse(key)
+        var path = String(stagedPinnedPaths[key] || "")
+        if ((referenced[String(parts[1])] || path === currentLinkSnapshotPath
+             || path === pendingCurrentLinkSnapshotPath) && path && active.indexOf(path) === -1)
+          active.push(path)
+      } catch (e) {}
+    }
+    var linkPaths = [currentLinkSnapshotPath, pendingCurrentLinkSnapshotPath, inFlightCurrentLinkSnapshotPath]
+      .concat(uncertainCurrentLinkSnapshotPaths)
+    for (var linkIndex = 0; linkIndex < linkPaths.length; linkIndex++) {
+      var linkPath = String(linkPaths[linkIndex] || "")
+      if (isStagedSnapshotPath(linkPath) && active.indexOf(linkPath) === -1) active.push(linkPath)
+    }
+    for (var rendererKey in rendererSourcePaths) {
+      var rendererPath = String(rendererSourcePaths[rendererKey] || "")
+      if (isStagedSnapshotPath(rendererPath) && active.indexOf(rendererPath) === -1) active.push(rendererPath)
+    }
+    return active
+  }
+
+  function rendererUsesSnapshot(path) {
+    for (var key in rendererSourcePaths) if (rendererSourcePaths[key] === path) return true
+    return false
+  }
+
+  function updateRendererSource(screen, slot, path) {
+    var key = JSON.stringify([String(screen), String(slot)])
+    var next = ({})
+    for (var existing in rendererSourcePaths) next[existing] = rendererSourcePaths[existing]
+    if (path) next[key] = String(path)
+    else delete next[key]
+    rendererSourcePaths = next
+    pruneStagedPinnedPaths()
+  }
+
+  function samePathMap(left, right) {
+    var leftKeys = Object.keys(left)
+    var rightKeys = Object.keys(right)
+    if (leftKeys.length !== rightKeys.length) return false
+    for (var i = 0; i < leftKeys.length; i++) {
+      var key = leftKeys[i]
+      if (!Object.prototype.hasOwnProperty.call(right, key) || left[key] !== right[key]) return false
+    }
+    return true
+  }
+
+  function pruneStagedPinnedPaths() {
+    var referenced = pinnedLogicalReferences()
+    var next = ({})
+    var nextLeases = ({})
+    var retainedTokens = []
+    var releases = []
+    for (var key in stagedPinnedPaths) {
+      try {
+        var parts = JSON.parse(key)
+        if ((key === pinnedStageKey(parts[0], parts[1]) && referenced[String(parts[1])]) || stagedPinnedPaths[key] === currentLinkSnapshotPath
+            || stagedPinnedPaths[key] === pendingCurrentLinkSnapshotPath
+            || stagedPinnedPaths[key] === inFlightCurrentLinkSnapshotPath
+            || uncertainCurrentLinkSnapshotPaths.indexOf(stagedPinnedPaths[key]) !== -1
+            || rendererUsesSnapshot(stagedPinnedPaths[key])) {
+          next[key] = stagedPinnedPaths[key]
+          if (stagedPinnedLeaseTokens[key]) {
+            nextLeases[key] = stagedPinnedLeaseTokens[key]
+            retainedTokens.push(stagedPinnedLeaseTokens[key])
+          }
+        } else if (stagedPinnedLeaseTokens[key]) {
+          releases.push({ path: stagedPinnedPaths[key], lease: stagedPinnedLeaseTokens[key] })
+        }
+      } catch (e) {}
+    }
+    if (!samePathMap(stagedPinnedPaths, next)) stagedPinnedPaths = next
+    stagedPinnedLeaseTokens = nextLeases
+    pendingPinnedLeaseReleases = pendingPinnedLeaseReleases.filter(function(item) {
+      return retainedTokens.indexOf(item.lease) === -1
+    }).concat(releases)
+    if (pendingPinnedLeaseReleases.length) pinnedLeaseReleaseTimer.restart()
+  }
+
+  function flushPinnedLeaseReleases() {
+    if (pinLeaseReleaseProc.running || !pendingPinnedLeaseReleases.length) return
+    var batch = pendingPinnedLeaseReleases.slice()
+    pendingPinnedLeaseReleases = []
+    inFlightPinnedLeaseReleases = batch
+    pinLeaseReleaseProc.command = [pythonPath, pinStagerPath, "--release", JSON.stringify(batch)]
+    pinLeaseReleaseProc.running = true
+  }
+
+  function finishPinnedLeaseRelease(exitCode) {
+    if (exitCode === 0) {
+      inFlightPinnedLeaseReleases = []
+      pinnedLeaseReleaseRetryCount = 0
+      if (pendingPinnedLeaseReleases.length) pinnedLeaseReleaseTimer.restart()
+      return
+    }
+    pendingPinnedLeaseReleases = inFlightPinnedLeaseReleases.concat(pendingPinnedLeaseReleases)
+    inFlightPinnedLeaseReleases = []
+    if (pinnedLeaseReleaseRetryCount === 0) {
+      pinnedLeaseReleaseRetryCount = 1
+      pinnedLeaseReleaseTimer.restart()
+    } else {
+      pinnedLeaseReleaseRetryCount = 0
+      console.warn("Wallpaper Manager: lease release failed twice; keeping cache snapshots protected")
+    }
+  }
+
+  function isStagedSnapshotPath(path) {
+    var value = safePath(path)
+    var rootPath = stagingCacheRoot.replace(/\/+$/, "") + "/"
+    if (!value.startsWith(rootPath)) return false
+    return /^[a-f0-9]{64}\/media\.[a-z0-9]{1,12}$/.test(value.substring(rootPath.length))
+  }
+
+  function renewPinnedLeaseSnapshots() {
+    if (!serviceActive || pinLeaseRenewProc.running) return
+    var leases = []
+    for (var key in stagedPinnedPaths) {
+      var path = String(stagedPinnedPaths[key] || "")
+      var lease = String(stagedPinnedLeaseTokens[key] || "")
+      if (isStagedSnapshotPath(path) && /^[a-f0-9]{32}$/.test(lease))
+        leases.push({ path: path, lease: lease })
+    }
+    if (!leases.length) {
+      pinnedLeaseRenewalUnavailable = false
+      pinnedLeaseRenewalFailures = 0
+      pinnedLeaseRenewRetryTimer.stop()
+      return
+    }
+    pinLeaseRenewProc.command = [pythonPath, pinStagerPath, "--renew", JSON.stringify(leases)]
+    pinLeaseRenewProc.running = true
+  }
+
+  function finishPinnedLeaseRenewal(exitCode) {
+    if (exitCode === 0) {
+      pinnedLeaseRenewalFailures = 0
+      pinnedLeaseRenewalUnavailable = false
+      pinnedLeaseRenewRetryTimer.stop()
+      return
+    }
+    if (!serviceActive) return
+    pinnedLeaseRenewalUnavailable = true
+    if (pinnedLeaseRenewalFailures === 0) {
+      pinnedLeaseRenewalFailures = 1
+      pinnedLeaseRenewRetryTimer.restart()
+    } else {
+      pinnedLeaseRenewalFailures = 0
+      console.warn("Wallpaper Manager: lease renewal failed twice; snapshots will expire unless renderer paths are still active")
+    }
+  }
+
+  function ensurePinnedMedia() {
+    if (!currentLinkStateReady) return false
+    if (pinStageProc.running) return false
+    if (pinnedLeaseRenewalUnavailable && Object.keys(stagedPinnedPaths).length) return false
+    var names = screenNames()
+    for (var i = 0; i < names.length; i++) {
+      var cfg = configFor(names[i])
+      if (cfg.mode !== "single" || cfg.pinned === "") continue
+      if (usablePoolFor(poolKeyFor(names[i])).indexOf(cfg.pinned) === -1) continue
+      var key = pinnedStageKey(cfg.folder, cfg.pinned)
+      if (stagedPinnedPaths[key] || failedPinnedPaths[key]) continue
+      stagingPinFolder = cfg.folder
+      stagingPinPath = cfg.pinned
+      stagingPinKey = key
+      pinStageProc.command = [pythonPath, pinStagerPath, cfg.folder, cfg.pinned, JSON.stringify(activeStagedSnapshots())]
+      pinStageProc.running = true
+      return false
+    }
+    return true
+  }
+
+  function prepareCurrentLinkState() {
+    if (!hasFolder()) {
+      currentLinkStateReady = true
+      return
+    }
+    currentLinkStateReady = false
+    if (!readlinkProc.running) readlinkProc.running = true
+  }
+
+  function renderPathFor(logicalPath, generation) {
+    var path = String(logicalPath || "")
+    if (!path) return ""
+    var names = screenNames()
+    var configuredPin = false
+    for (var i = 0; i < names.length; i++) {
+      var cfg = configFor(names[i])
+      if (cfg.pinned === path && cfg.folder !== "") {
+        configuredPin = true
+        var staged = stagedPinnedPaths[pinnedStageKey(cfg.folder, path, generation)]
+        if (staged) return staged
+      }
+    }
+    // Keep a prior snapshot available while a changed pin transitions out.
+    for (var key in stagedPinnedPaths) {
+      try {
+        var parts = JSON.parse(key)
+        if (parts[1] === path && (generation === undefined || parts.length < 3 || parts[2] === generation))
+          return stagedPinnedPaths[key]
+      } catch (e) {}
+    }
+    if (configuredPin) return ""
+    return path
+  }
+
+  function finishPinnedStage(exitCode, output) {
+    // Preserve the request generation if a theme changed during staging.
+    var key = stagingPinKey || pinnedStageKey(stagingPinFolder, stagingPinPath)
+    var result = ({})
+    try { result = JSON.parse(String(output || "").trim()) } catch (e) {}
+    if (!result || typeof result !== "object") result = ({})
+    var staged = safePath(String(result.path || ""))
+    var lease = String(result.lease || "")
+    if (!serviceActive) {
+      if (isStagedSnapshotPath(staged) && /^[a-f0-9]{32}$/.test(lease)) {
+        pendingPinnedLeaseReleases = pendingPinnedLeaseReleases.concat([{ path: staged, lease: lease }])
+        pinnedLeaseReleaseTimer.restart()
+      }
+      stagingPinFolder = ""
+      stagingPinPath = ""
+      stagingPinKey = ""
+      return
+    }
+    var next = ({})
+    if (exitCode === 0 && staged !== "" && isStagedSnapshotPath(staged)
+        && /^[a-f0-9]{32}$/.test(lease)) {
+      for (var existing in stagedPinnedPaths) next[existing] = stagedPinnedPaths[existing]
+      next[key] = staged
+      stagedPinnedPaths = next
+      var nextLeases = ({})
+      for (var leaseKey in stagedPinnedLeaseTokens) nextLeases[leaseKey] = stagedPinnedLeaseTokens[leaseKey]
+      nextLeases[key] = lease
+      stagedPinnedLeaseTokens = nextLeases
+    } else {
+      if (isStagedSnapshotPath(staged) && /^[a-f0-9]{32}$/.test(lease)) {
+        pendingPinnedLeaseReleases = pendingPinnedLeaseReleases.concat([{ path: staged, lease: lease }])
+        pinnedLeaseReleaseTimer.restart()
+      }
+      for (var failed in failedPinnedPaths) next[failed] = failedPinnedPaths[failed]
+      next[key] = true
+      failedPinnedPaths = next
+      console.warn("Wallpapers: pinned media snapshot failed or was outside the configured private cache; pin ignored")
+    }
+    stagingPinFolder = ""
+    stagingPinPath = ""
+    stagingPinKey = ""
+    Qt.callLater(function() { root.shuffle(false) })
+  }
+
+  // Every usable image across every pool, for the status readout. Deduped:
+  // shared folders would otherwise be counted once per display using them.
+  function usablePool() {
+    var seen = ({})
+    var out = []
+    for (var key in pools) {
+      var list = usablePoolFor(key)
+      for (var i = 0; i < list.length; i++) {
+        if (seen[list[i]]) continue
+        seen[list[i]] = true
+        out.push(list[i])
+      }
+    }
+    return out
+  }
+
+  // Scans run one at a time through a single Process rather than one Process
+  // per folder: the count is driven by how many displays are configured
+  // differently, and a queue keeps that from becoming a fork storm.
+  property var scanQueue: []
+  property string scanningKey: ""
+
+  function rescan() {
+    if (!hasServiceContext()) return
+    pinnedPoolFresh = false
+    failedPinnedPaths = ({})
+    // Clearing the skip list here makes a rescan the way to retry a file that
+    // has since been repaired or replaced. The cost of being wrong is one
+    // failed decode, after which it is skipped again.
+    badImages = ({})
+    if (scanProc.running) scanProc.running = false
+    pools = ({})
+    dealQueues = ({})
+    recentDeals = ({})
+    poolLoaded = false
+    if (!hasFolder()) return
+    scanQueue = distinctPoolKeys()
+    drainScans()
+  }
+
+  function drainScans() {
+    if (!hasServiceContext()) return
+    if (scanProc.running) return
+    if (!scanQueue.length) {
+      poolLoaded = true
+      pinnedPoolFresh = true
+      if (hasFolder()) shuffle(displayedIsEmpty())
+      return
+    }
+    var key = scanQueue[0]
+    scanQueue = scanQueue.slice(1)
+    scanningKey = key
+    // Keep find's output NUL-delimited while filtering: a newline in a file
+    // name must not be mistaken for a record separator. Convert to newlines
+    // only after control-bearing names have been removed; StdioCollector
+    // receives the resulting safe, newline-delimited string.
+    var folder = safePath(poolKeyFolder(key))
+    if (folder === "") { drainScans(); return }
+    scanProc.command = ["bash", "-c",
+      "test -d \"$1\" || exit 0; exec timeout --kill-after=1s 15s find -P \"$1\" -xdev $2 -type f \\\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.webm' -o -iname '*.mkv' -o -iname '*.mov' -o -iname '*.avi' -o -iname '*.bmp' -o -iname '*.webp' \\\) -print0 2>/dev/null | LC_ALL=C grep -zav '[[:cntrl:]]' | LC_ALL=C.UTF-8 grep -zavP '[\\x{80}-\\x{9f}]' | tr '\\0' '\\n' | head -n 10000 | sort -u",
+      "wpm-scan", folder, poolKeyRecursive(key) ? "-maxdepth 32" : "-maxdepth 1"]
+    scanProc.running = true
+  }
+
+  Process {
+    id: scanProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var found = String(text || "").split("\n").filter(function(p) { return p !== "" })
+        var next = ({})
+        for (var k in root.pools) next[k] = root.pools[k]
+        next[root.scanningKey] = found
+        root.pools = next
+      }
+    }
+    // Chained on exit, not on stdout: stdout can finish before the process
+    // does, and starting the next scan while this one is still running would
+    // drop it.
+    onExited: root.drainScans()
+  }
+
+  function displayedIsEmpty() {
+    for (var k in displayedMap) if (displayedMap[k]) return false
+    return true
+  }
+
+  // Fisher-Yates over a copy, so a reshuffle never reorders `pool` itself.
+  function shuffled(list) {
+    var out = list.slice()
+    for (var i = out.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1))
+      var tmp = out[i]; out[i] = out[j]; out[j] = tmp
+    }
+    return out
+  }
+
+  // ------------------------------------------------------------- deal order
+
+  // What is left of the current pass through the pool. Images are dealt off
+  // the front and the queue is reshuffled only once it empties, so a folder of
+  // 500 wallpapers shows all 500 before any of them comes round again.
+  //
+  // Re-randomising the whole pool on every shuffle -- which is what this used
+  // to do -- is sampling with replacement: over 500 shuffles you would expect
+  // to see roughly a third of the folder not at all, and some images three or
+  // four times. The randomness feels worse than it is, because a repeat two
+  // wallpapers apart is much more noticeable than an even rotation.
+  // poolKey -> remaining paths. One pass per folder, so a display pointed at a
+  // small folder wraps often without dragging a larger one round with it.
+  property var dealQueues: ({})
+
+  // The tail of the previous pass through each pool. A queue already prevents
+  // repeats within one pass, but without this memory the first positions of a
+  // newly shuffled pass can contain images that were only just shown at the
+  // end of the old one. Keeping half a pool (capped to avoid needless state on
+  // very large collections) lets refillQueue push those recent images deeper
+  // into the next pass while preserving the one-use-per-pass guarantee.
+  property var recentDeals: ({})
+
+  function setQueue(key, list) {
+    var next = ({})
+    for (var k in dealQueues) next[k] = dealQueues[k]
+    next[key] = list
+    dealQueues = next
+  }
+
+  function rememberDeal(key, path) {
+    var poolSize = usablePoolFor(key).length
+    var limit = Math.min(24, Math.ceil(poolSize / 2))
+    if (limit <= 0) return
+
+    var history = (recentDeals[key] || []).filter(function(p) { return p !== path })
+    history.push(path)
+    if (history.length > limit) history = history.slice(history.length - limit)
+
+    var next = ({})
+    for (var k in recentDeals) next[k] = recentDeals[k]
+    next[key] = history
+    recentDeals = next
+  }
+
+  // The one place a repeat can still show up is across the wrap: the tail of a
+  // pass and the head of the next are drawn independently, so an image can
+  // land on the same display twice running. `avoid` is every image currently
+  // on screen -- not just the primary's -- because on a two-monitor setup the
+  // second draw is just as visible as the first, and guarding only the head
+  // leaves it free to repeat.
+  function refillQueue(key, avoid) {
+    var next = shuffled(usablePoolFor(key))
+    var avoidList = Array.isArray(avoid) ? avoid : (avoid ? [avoid] : [])
+
+    // Keep both currently visible and recently dealt images out of the front
+    // of the new pass whenever the pool has alternatives. Both partitions are
+    // already randomly ordered, so this only constrains recency, not the order
+    // among equally eligible images.
+    var recent = recentDeals[key] || []
+    var fresh = []
+    var delayed = []
+    for (var i = 0; i < next.length; i++) {
+      if (avoidList.indexOf(next[i]) !== -1 || recent.indexOf(next[i]) !== -1)
+        delayed.push(next[i])
+      else
+        fresh.push(next[i])
+    }
+    setQueue(key, fresh.concat(delayed))
+  }
+
+  // Take `count` images off a pool's queue, refilling as it runs dry. Returns
+  // fewer than asked for only when that pool is empty, which is the caller's
+  // cue that there is nothing to show on those displays.
+  function dealNext(key, count, avoid) {
+    var avoidList = Array.isArray(avoid) ? avoid.slice() : (avoid ? [avoid] : [])
+    var out = []
+    while (out.length < count) {
+      var queue = dealQueues[key] || []
+      if (!queue.length) {
+        // Mid-deal refills must also avoid what this deal has already handed
+        // out, or one shuffle could put the same image on two displays.
+        refillQueue(key, avoidList.concat(out))
+        queue = dealQueues[key] || []
+        if (!queue.length) break
+      }
+      queue = queue.slice()
+      var picked = String(queue.shift())
+      out.push(picked)
+      setQueue(key, queue)
+      rememberDeal(key, picked)
+    }
+    return out
+  }
+
+  // Refill a queue that has just run dry rather than waiting for the next deal
+  // to need it. The same refill happens either way and the deal order is
+  // unchanged; doing it now means the head of the next pass is decided ahead
+  // of time, which is what lets the bar say which image each display is about
+  // to get.
+  function topUpQueues(picks) {
+    var avoid = []
+    for (var n in picks) {
+      var p = String(picks[n] || "")
+      if (p && avoid.indexOf(p) === -1) avoid.push(p)
+    }
+    var keys = distinctPoolKeys()
+    for (var i = 0; i < keys.length; i++) {
+      if ((dealQueues[keys[i]] || []).length) continue
+      refillQueue(keys[i], avoid)
+    }
+  }
+
+  // What the next advance would put on each shuffling display, peeked rather
+  // than dealt. The grouping mirrors pickForScreens, and the queues are topped
+  // up after every deal, so these heads are the images that call will hand out
+  // rather than a guess at them.
+  function nextPicks() {
+    var names = screenNames()
+    var out = ({})
+    var groups = ({})
+    var order = []
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i]
+      if (configFor(name).mode !== "shuffle") continue
+      var key = poolKeyFor(name)
+      if (key === "") continue
+      if (!groups[key]) { groups[key] = []; order.push(key) }
+      groups[key].push(name)
+    }
+
+    for (var g = 0; g < order.length; g++) {
+      var members = groups[order[g]]
+      var queue = dealQueues[order[g]] || []
+      if (!queue.length) continue
+      for (var m = 0; m < members.length; m++)
+        out[members[m]] = String(independentDisplayPicks
+          ? queue[m % queue.length] : queue[0])
+    }
+    return out
+  }
+
+  function dropFromQueue(path) {
+    var next = ({})
+    for (var k in dealQueues) {
+      next[k] = dealQueues[k].filter(function(p) { return p !== path })
+    }
+    dealQueues = next
+  }
+
+  // Deal one image per screen. Displays are grouped by the folder they draw
+  // from and dealt a group at a time, so displays sharing a folder never get
+  // the same image at once while displays on different folders are unaffected
+  // by each other's pool running short.
+  //
+  // A display in single mode keeps its pinned image and consumes nothing from
+  // any queue: that is how one monitor stays put while another rotates.
+  function pickForScreens() {
+    var names = screenNames()
+    var picks = ({})
+    if (!names.length) return picks
+
+    // What is on screen now, kept out of the head of a refilled queue.
+    var avoid = []
+    for (var a = 0; a < names.length; a++) {
+      var showing = String(displayedMap[names[a]] || "")
+      if (showing && avoid.indexOf(showing) === -1) avoid.push(showing)
+    }
+
+    // Group the shuffling displays by pool; pin the single ones as we go.
+    var groups = ({})
+    var order = []
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i]
+      var cfg = configFor(name)
+      if (cfg.folder === "") {
+        picks[name] = currentBackground || incomingMap[name] || displayedMap[name] || ""
+        continue
+      }
+      if (cfg.mode === "single") {
+        // `configFor` only proves lexical containment. A pin must also be an
+        // exact regular-file result from the current non-following scan.
+        var pinKey = poolKeyFor(name)
+        var stageKey = pinnedStageKey(cfg.folder, cfg.pinned)
+        if (cfg.pinned !== "" && usablePoolFor(pinKey).indexOf(cfg.pinned) !== -1
+            && stagedPinnedPaths[stageKey])
+          picks[name] = cfg.pinned
+        continue
+      }
+      var key = poolKeyFor(name)
+      if (key === "") continue
+      if (!groups[key]) { groups[key] = []; order.push(key) }
+      groups[key].push(name)
+    }
+
+    for (var g = 0; g < order.length; g++) {
+      var poolKey = order[g]
+      var members = groups[poolKey]
+      if (!usablePoolFor(poolKey).length) continue
+
+      // perDisplay only has meaning within a group: it asks whether these
+      // displays mirror one image or each get their own.
+      if (!independentDisplayPicks) {
+        var one = dealNext(poolKey, 1, avoid)[0] || ""
+        if (!one) continue
+        for (var m = 0; m < members.length; m++) picks[members[m]] = one
+        continue
+      }
+
+      var dealt = dealNext(poolKey, members.length, avoid)
+      if (!dealt.length) continue
+      for (var d = 0; d < members.length; d++) picks[members[d]] = dealt[d % dealt.length]
+    }
+    return picks
+  }
+
+  function shuffle(instant) {
+    if (!hasServiceContext()) return
+    if (!hasFolder()) return
+    if (!poolLoaded) { rescan(); return }
+    if (hasPinned()) {
+      if (!pinnedPoolFresh) { rescan(); return }
+      if (!ensurePinnedMedia()) return
+      pinnedPoolFresh = false
+    }
+    var picks = pickForScreens()
+    var empty = true
+    for (var k in picks) { empty = false; break }
+    if (empty) return
+    applyPerScreen(picks, instant === true)
+    syncCurrentLink(picks)
+    topUpQueues(picks)
+  }
+
+  // A manual change starts a new countdown. Without this, the timer keeps
+  // the old deadline and can change the wallpaper again almost immediately
+  // after the user asked for the next one.
+  function restartAutoShuffleTimer() {
+    if (hasServiceContext() && folderMode && intervalSec > 0) autoShuffleTimer.restart()
+    else autoShuffleTimer.stop()
+  }
+
+  // The user-facing "next image". Distinct from shuffle(), which is also how a
+  // pinned image and a freshly scanned folder are applied and so must still run
+  // when nothing is set to shuffle.
+  function advance() {
+    if (!hasShuffling()) return
+    shuffle(false)
+    restartAutoShuffleTimer()
+  }
+
+  function primaryPick(picks) {
+    var name = primaryScreenName()
+    return name ? String(picks[name] || "") : ""
+  }
+
+  // ------------------------------------------------------- undecodable images
+
+  function noteRendererError(screenName, slot, sourcePath) {
+    screenName = String(screenName || "")
+    sourcePath = String(sourcePath || "")
+    if (!screenName || !sourcePath) return
+    var logicalPath = slot === frontSlot ? displayedMap[screenName] : incomingMap[screenName]
+    if (!logicalPath) return
+    var generation = slot === 0 ? slotAGeneration : slotBGeneration
+    if (renderPathFor(logicalPath, generation) !== sourcePath) return
+    if (slot === frontSlot) noteBadImage(logicalPath)
+    else noteBadImage(logicalPath, screenName, backgroundVersion)
+  }
+
+  function noteBadImage(path, screenName, version) {
+    path = String(path || "")
+    if (version !== undefined
+        && (version !== backgroundVersion || !screenName || incomingMap[String(screenName)] !== path)) return
+    if (version !== undefined) {
+      var failed = ({})
+      for (var existing in incomingFailed) failed[existing] = incomingFailed[existing]
+      failed[String(screenName)] = path
+      incomingFailed = failed
+      if (revealStartedVersion === version) {
+        revealAnimation.stop()
+        revealProgress = 0
+        revealArmed = false
+      }
+    }
+    if (!path || badImages[path]) return
+    var next = ({})
+    for (var k in badImages) next[k] = badImages[k]
+    next[path] = true
+    badImages = next
+    dropFromQueue(path)
+    console.warn("Wallpapers: skipping image that could not be decoded: " + path)
+    replaceBadImage(path)
+  }
+
+  // Re-deal only the displays holding the bad image. Reshuffling everything
+  // would punish the other monitors for one unreadable file, and the swap is
+  // instant because there is nothing worth animating away from -- the failed
+  // image was never visible.
+  function replaceBadImage(path) {
+    if (!hasFolder()) return
+    var usable = usablePool()
+    if (!usable.length) return
+
+    var names = screenNames()
+    var picks = ({})
+    var inUse = ({})
+    var affected = []
+
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i]
+      var cur = String(incomingMap[n] || displayedMap[n] || "")
+      if (!cur || cur === path || badImages[cur]) affected.push(n)
+      else { picks[n] = cur; inUse[cur] = true }
+    }
+    if (!affected.length) return
+
+    for (var j = 0; j < affected.length; j++) {
+      // Drawn from the same queue as an ordinary deal, so a decode failure
+      // costs the pass one position rather than reaching outside the rotation.
+      var chosen = ""
+      var drawn = ""
+      var key = poolKeyFor(affected[j])
+      for (var attempt = 0; attempt < 8; attempt++) {
+        drawn = dealNext(key, 1, path)[0] || ""
+        if (!drawn) break
+        if (!independentDisplayPicks || !inUse[drawn]) { chosen = drawn; break }
+      }
+      // Fewer usable images than displays: repeating one beats a black screen.
+      if (!chosen) chosen = drawn
+      if (!chosen) return
+      picks[affected[j]] = chosen
+      inUse[chosen] = true
+    }
+
+    // A replacement that also fails to decode lands back here, but each pass
+    // removes one path from the pool, so the retries are bounded by its size.
+    applyPerScreen(picks, true)
+    syncCurrentLink(picks)
+    topUpQueues(picks)
+  }
+
+  // The lock screen and `omarchy theme bg current` both read the state
+  // symlink, so keep it pointed at something we are actually showing.
+  function syncCurrentLink(picks) {
+    if (!hasServiceContext()) return
+    var primary = renderPathFor(primaryPick(picks))
+    if (!primary) return
+    pendingCurrentLinkSnapshotPath = primary
+    startCurrentLinkPublication()
+  }
+
+  function startCurrentLinkPublication() {
+    if (linkProc.running || !pendingCurrentLinkSnapshotPath) return
+    inFlightCurrentLinkSnapshotPath = pendingCurrentLinkSnapshotPath
+    pendingCurrentLinkSnapshotPath = ""
+    // Keep the destination directory pinned by the publisher before changing
+    // anything below it. A path-based `ln` would allow a replaced `current`
+    // directory symlink to redirect the write elsewhere.
+    linkProc.command = [pythonPath, linkPublisherPath, currentBackgroundDirectory, inFlightCurrentLinkSnapshotPath]
+    linkProc.running = true
+  }
+
+  function finishCurrentLinkPublication(exitCode) {
+    var completed = inFlightCurrentLinkSnapshotPath
+    if (exitCode === 0) {
+      currentLinkSnapshotPath = completed
+      uncertainCurrentLinkSnapshotPaths = []
+    } else if (isStagedSnapshotPath(completed)
+               && uncertainCurrentLinkSnapshotPaths.indexOf(completed) === -1) {
+      uncertainCurrentLinkSnapshotPaths = uncertainCurrentLinkSnapshotPaths.concat([completed])
+    }
+    inFlightCurrentLinkSnapshotPath = ""
+    if (pendingCurrentLinkSnapshotPath) startCurrentLinkPublication()
+    pruneStagedPinnedPaths()
+  }
+
+  // omarchy-theme-set rewrites the current-background symlink after the theme
+  // transition IPC returns. In folder mode that image is not ours, so repair
+  // the link from the wallpaper currently shown by the primary display.
+  function syncDisplayedCurrentLink(defaultPath, instant) {
+    // Native theme handoffs still own empty-folder outputs in a mixed setup.
+    // Keep custom selections and queues untouched while updating those outputs.
+    if (defaultPath) {
+      currentBackground = String(defaultPath).trim()
+      var names = screenNames()
+      var picks = ({})
+      var hasDefault = false
+      for (var i = 0; i < names.length; i++) {
+        var name = names[i]
+        if (configFor(name).folder === "") {
+          picks[name] = currentBackground
+          hasDefault = true
+        } else picks[name] = incomingMap[name] || displayedMap[name] || ""
+      }
+      if (hasDefault) applyPerScreen(picks, instant === true)
+    }
+    var primary = primaryScreenName()
+    if (!primary) return
+    var path = String(displayedMap[primary] || incomingMap[primary] || "")
+    if (!path) return
+    var picks = ({})
+    picks[primary] = path
+    syncCurrentLink(picks)
+  }
+
+  Process {
+    id: linkProc
+    onExited: function(exitCode, exitStatus) { root.finishCurrentLinkPublication(exitCode) }
+  }
+
+  Process {
+    id: pinLeaseReleaseProc
+    onExited: function(exitCode, exitStatus) { root.finishPinnedLeaseRelease(exitCode) }
+  }
+
+  Process {
+    id: pinLeaseRenewProc
+    onExited: function(exitCode, exitStatus) { root.finishPinnedLeaseRenewal(exitCode) }
+  }
+
+  Timer {
+    id: pinnedLeaseRenewTimer
+    interval: 12 * 60 * 60 * 1000
+    repeat: true
+    running: root.serviceActive
+    onTriggered: root.renewPinnedLeaseSnapshots()
+  }
+
+  Timer {
+    id: pinnedLeaseRenewRetryTimer
+    interval: 60 * 1000
+    repeat: false
+    onTriggered: root.renewPinnedLeaseSnapshots()
+  }
+
+  Timer {
+    id: pinnedLeaseReleaseTimer
+    interval: 1000
+    repeat: false
+    onTriggered: root.flushPinnedLeaseReleases()
+  }
+
+  Process {
+    id: pinStageProc
+    stdout: StdioCollector { id: pinStageOutput; waitForEnd: true }
+    onExited: function(exitCode, exitStatus) { root.finishPinnedStage(exitCode, pinStageOutput.text) }
+  }
+
+  Timer {
+    id: folderLinkRepairTimer
+    interval: 250
+    repeat: false
+    onTriggered: root.syncDisplayedCurrentLink()
+  }
+
+  // ------------------------------------------------------------ wake shuffle
+
+  // Tying the shuffle to unlock and screensaver dismissal puts the update where
+  // the user is already waiting to resume, and where a new wallpaper is what
+  // they expect to see anyway.
+  // Omarchy 4.5 deliberately isolates lock/idle from ordinary plugins. Do not
+  // bypass that boundary. Preserve saved preferences, but report unavailable
+  // wake sources and disable the corresponding UI until a public event API exists.
+  readonly property var lockService: null
+  readonly property var idleService: null
+
+  readonly property bool sessionLocked: lockService ? lockService.locked === true : false
+  readonly property bool screensaverShowing: idleService ? Number(idleService.screensaverWindowCount) > 0 : false
+
+  onSessionLockedChanged: if (!sessionLocked) wakeShuffle()
+  onScreensaverShowingChanged: if (!screensaverShowing) wakeShuffle()
+
+  function wakeShuffle() {
+    if (!shuffleOnWake || !hasFolder()) return
+    wakeDebounce.restart()
+  }
+
+  // Dismissing a screensaver that had already escalated to a lock clears both
+  // flags a moment apart, which is one wake but two signals.
+  Timer {
+    id: wakeDebounce
+    interval: 400
+    repeat: false
+    onTriggered: root.shuffle(false)
+  }
+
+  // --------------------------------------------------------- transitioning
+
+  function beginTransition(nextDisplayed, nextIncoming, nextOld, instant) {
+    backgroundVersion += 1
+    revealStartedVersion = -1
+    revealTimedOutVersion = -1
+    incomingReady = ({})
+    incomingFailed = ({})
+    revealArmed = false
+    revealAnimation.stop()
+    revealArmTimeout.stop()
+
+    if (instant) {
+      slotAGeneration = themeContentVersion
+      displayedMap = nextIncoming
+      incomingMap = ({})
+      oldMap = ({})
+      slotAMap = nextIncoming
+      slotBMap = ({})
+      frontSlot = 0
+      revealProgress = 1
+      pruneStagedPinnedPaths()
+      return
+    }
+
+    displayedMap = nextDisplayed
+    oldMap = nextOld
+    incomingMap = nextIncoming
+    if (frontSlot === 0) {
+      slotBGeneration = themeContentVersion
+      slotBMap = nextIncoming
+    } else {
+      slotAGeneration = themeContentVersion
+      slotAMap = nextIncoming
+    }
+    revealProgress = 0
+    revealArmTimeout.restart()
+  }
+
+  function applyPerScreen(picks, instant) {
+    var names = screenNames()
+    // Recovery and pin failures can supply partial picks. Every promoted slot
+    // must still contain the healthy outputs before the previous slot is freed.
+    var complete = ({})
+    var changed = false
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i]
+      complete[n] = picks[n] || incomingMap[n] || displayedMap[n] || ""
+      if (complete[n] !== displayedMap[n]) changed = true
+    }
+    if (!changed && !instant && appliedThemeContentVersion === themeContentVersion) return
+    appliedThemeContentVersion = themeContentVersion
+    // The active renderer already contains the old wallpaper. A separate old
+    // layer here would decode and upload the same image a second time.
+    beginTransition(displayedMap, complete, ({}), instant === true || displayedIsEmpty())
+  }
+
+  // Stock single-image path: fill every screen with the same value.
+  function applyGlobal(fromPath, path, finalPath, instant, force) {
+    if (!hasServiceContext()) return
+    path = String(path || "").trim()
+    finalPath = String(finalPath || path).trim()
+    fromPath = String(fromPath || "").trim()
+    if (!path) return
+    var names = screenNames()
+    if (!force && finalPath === currentBackground) {
+      // Compare the pending map while revealing, otherwise the displayed map.
+      // A stable path alone says nothing about newly attached outputs.
+      var covered = Object.keys(incomingMap).length ? incomingMap : displayedMap
+      var complete = Object.keys(covered).length === names.length
+      for (var c = 0; c < names.length; c++)
+        if (covered[names[c]] !== finalPath) complete = false
+      if (complete) return
+    }
+    currentBackground = finalPath
+
+    var nextIncoming = ({})
+    var nextOld = ({})
+    var nextDisplayed = ({})
+    for (var i = 0; i < names.length; i++) {
+      var n = names[i]
+      // Theme snapshots expire after the transition. Decode the durable target
+      // instead so renderer recreation never depends on a deleted snapshot.
+      nextIncoming[n] = finalPath
+      nextDisplayed[n] = displayedMap[n] || ""
+      // Theme transitions may explicitly provide a different source frame.
+      // Keep the compatibility layer only for that exceptional case; the
+      // active slot already supplies the ordinary previous wallpaper.
+      nextOld[n] = fromPath && fromPath !== nextDisplayed[n] ? fromPath : ""
+    }
+    beginTransition(nextDisplayed, nextIncoming, nextOld, instant === true || displayedIsEmpty())
+  }
+
+  function refreshBackground() {
+    if (!hasServiceContext()) return
+    if (hasFolder()) { shuffle(false); return }
+    if (!readlinkProc.running) readlinkProc.running = true
+  }
+
+  function setBackground(path, instant) {
+    if (!hasServiceContext()) return
+    if (hasFolder()) {
+      // Theme intros end with setInstant instead of themeTransition. Keep the
+      // selected folder image and repair its published link without dealing again.
+      syncDisplayedCurrentLink(path, instant)
+      folderLinkRepairTimer.restart()
+      return
+    }
+    applyGlobal("", path, path, instant, false)
+  }
+
+  // ----------------------------------------------------------- theme colors
+
+  function setPendingTheme(colorsB64, shellB64) {
+    pendingColorsRaw = Util.decodeBase64(colorsB64)
+    pendingShellRaw = Util.decodeBase64(shellB64)
+    pendingThemeVersion = backgroundVersion
+    pendingThemeFallbackTimer.restart()
+  }
+
+  function applyPendingTheme() {
+    if (pendingThemeVersion < 0) return
+    pendingThemeFallbackTimer.stop()
+    Commons.Color.loadColors(pendingColorsRaw)
+    Commons.Color.loadShell(pendingShellRaw)
+    Style.scheduleRefresh()
+    pendingThemeVersion = -1
+    pendingColorsRaw = ""
+    pendingShellRaw = ""
+  }
+
+  // In folder mode the theme's image is ignored but its palette is not: a
+  // theme switch must still recolor the bar, so the payload is applied
+  // immediately rather than being carried by a reveal that never starts.
+  function transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64) {
+    if (!hasServiceContext()) return
+    if (hasFolder()) {
+      setPendingTheme(colorsB64, shellB64)
+      applyPendingTheme()
+      // The theme script updates the symlink immediately after this handler
+      // returns; the delayed repair runs after that write has completed.
+      syncDisplayedCurrentLink(finalPath || path, false)
+      folderLinkRepairTimer.restart()
+      return
+    }
+    applyGlobal(fromPath, path, finalPath, false, true)
+    setPendingTheme(colorsB64, shellB64)
+    if (revealProgress >= 1) applyPendingTheme()
+  }
+
+  // One shared revealProgress drives every screen, so the wipe may only start
+  // once all of them have decoded their incoming image. Arming on the first
+  // screen instead leaves the slower one hidden for the whole animation (its
+  // layer is gated on revealArmed) and popping in at the end — a wipe on one
+  // monitor and a hard cut on the other.
+  function noteIncomingReady(name, version, path) {
+    if (version !== backgroundVersion || !path || path !== incomingMap[name]
+        || incomingFailed[name] === path) return
+    if (incomingReady[name]) return
+    var next = ({})
+    for (var k in incomingReady) next[k] = incomingReady[k]
+    next[name] = true
+    incomingReady = next
+    armRevealIfReady()
+  }
+
+  function incomingReadyForCurrentTransition(version) {
+    if (version !== backgroundVersion) return false
+    var names = screenNames()
+    if (!names.length) return false
+    for (var i = 0; i < names.length; i++) {
+      var name = names[i]
+      if (!incomingMap[name] || !incomingReady[name] || incomingFailed[name] === incomingMap[name]) return false
+    }
+    return true
+  }
+
+  function armRevealIfReady() {
+    if (revealStartedVersion === backgroundVersion) return
+    if (incomingReadyForCurrentTransition(backgroundVersion)) armReveal()
+  }
+
+  function armReveal() {
+    if (revealStartedVersion === backgroundVersion
+        || !incomingReadyForCurrentTransition(backgroundVersion)) return
+    revealStartedVersion = backgroundVersion
+    revealArmTimeout.stop()
+    revealArmed = true
+    applyPendingTheme()
+    revealAnimation.restart()
+  }
+
+  function handleRevealTimeout(version) {
+    if (version !== backgroundVersion || revealStartedVersion === version) return
+    // Keep the current front slot leased and visible. Late readiness can still
+    // complete this generation; errors replace or abandon it without a blank.
+    revealTimedOutVersion = version
+  }
+
+  // A screen whose image fails to decode leaves its old front slot visible;
+  // timeout is diagnostic only and never promotes an unready global slot.
+  Timer {
+    id: revealArmTimeout
+    interval: 1500
+    repeat: false
+    onTriggered: root.handleRevealTimeout(root.backgroundVersion)
+  }
+
+  // --------------------------------------------------------------- actions
+
+  function openSelector() {
+    if (!hasServiceContext()) return
+    // In folder mode the theme background switcher would list images we are
+    // not using, so the desktop gesture advances the existing deal queue.
+    // Rescanning here would throw away all images that had not been shown yet.
+    if (hasFolder()) { advance(); return }
+    if (!bgSwitchProc.running) bgSwitchProc.running = true
+  }
+
+  function openThemeSwitcher() {
+    if (!hasServiceContext()) return
+    if (!themeSwitchProc.running) themeSwitchProc.running = true
+  }
+
+  Process {
+    id: bgSwitchProc
+    command: ["bash", "-c", "background=$(omarchy-theme-bg-switcher); [[ -n $background ]] && omarchy-theme-bg-set \"$background\""]
+    onExited: root.refreshBackground()
+  }
+
+  Process {
+    id: themeSwitchProc
+    command: ["bash", "-c", "theme=$(omarchy-theme-switcher); [[ -n $theme ]] && omarchy-theme-set \"$theme\" >/dev/null 2>&1 &"]
+    onExited: root.refreshBackground()
+  }
+
+  Process {
+    id: readlinkProc
+    command: ["readlink", "-f", root.currentBackgroundLink]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var linkedPath = String(text || "").trim()
+        if (root.isStagedSnapshotPath(linkedPath)) root.currentLinkSnapshotPath = linkedPath
+        root.currentLinkStateReady = true
+        if (root.hasFolder()) {
+          // The shared link may already be our custom primary's publication.
+          if (!root.currentBackground && !nativeDefaultProc.running) nativeDefaultProc.running = true
+          root.shuffle(false)
+          return
+        }
+        root.applyGlobal("", linkedPath, linkedPath, false, false)
+      }
+    }
+  }
+
+  function nativeDefaultCommand() {
+    // Match native user/theme sources, not the manager-owned publication link.
+    return ["bash", "-c",
+      "theme=$(cat -- \"$1/.local/state/omarchy/current/theme.name\" 2>/dev/null); case \"$theme\" in ''|*/*|.|"
+      + root.parentSegment + ") user='' ;; *) user=\"$1/.config/omarchy/backgrounds/$theme\" ;; esac; timeout --kill-after=1s 3s find -H \"$user\" \"$1/.local/state/omarchy/current/theme/backgrounds\" -maxdepth 1 -type f \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.gif' -o -iname '*.bmp' -o -iname '*.webp' -o -iname '*.mp4' -o -iname '*.m4v' -o -iname '*.mov' -o -iname '*.webm' -o -iname '*.mkv' -o -iname '*.avi' \\) -print0 2>/dev/null | LC_ALL=C sort -z | LC_ALL=C grep -zav '[[:cntrl:]]' | LC_ALL=C.UTF-8 grep -zavP '[\\x{80}-\\x{9f}]' | tr '\\0' '\\n' | head -n 1",
+      "wpm-native-default", home]
+  }
+
+  Process {
+    id: nativeDefaultProc
+    command: root.nativeDefaultCommand()
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var nativePath = String(text || "").trim()
+        // An IPC handoff received during discovery is newer than this result.
+        if (!root.serviceActive || root.currentBackground || !nativePath) return
+        root.currentBackground = nativePath
+        root.shuffle(false)
+      }
+    }
+  }
+
+  ShellIpc {
+    enabled: root.serviceActive
+    target: "background"
+
+    function refresh(): void {
+      root.refreshBackground()
+    }
+
+    function set(path: string): void {
+      root.setBackground(path, false)
+    }
+
+    function setInstant(path: string): void {
+      root.setBackground(path, true)
+    }
+
+    function setSuspended(value: string): void {
+      root.suspended = value === "true"
+    }
+
+    function transition(fromPath: string, path: string): void {
+      if (root.hasFolder()) { root.shuffle(false); return }
+      root.applyGlobal(fromPath, path, path, false, false)
+    }
+
+    function themeTransition(fromPath: string, path: string, finalPath: string, colorsB64: string, shellB64: string): void {
+      root.transitionBackgroundWithTheme(fromPath, path, finalPath, colorsB64, shellB64)
+    }
+
+    // Added by this clone. The queue is only reshuffled once it empties, so
+    // this deals the following image rather than re-randomising anything --
+    // hence "next".
+    function next(): string {
+      if (!root.hasFolder()) return "no folder configured"
+      if (!root.hasShuffling()) return "no display is set to shuffle"
+      root.advance()
+      return "ok"
+    }
+
+    // The older name for the same thing, kept because it is in people's key
+    // binds.
+    function shuffle(): string {
+      return next()
+    }
+
+    function rescan(): string {
+      root.rescan()
+      return "ok"
+    }
+
+    function status(): string {
+      return JSON.stringify({
+        folder: root.folder,
+        recursive: configFor(root.primaryScreenName()).recursive,
+        perDisplay: root.perDisplay,
+        intervalSec: root.intervalSec,
+        poolSize: root.usablePool().length,
+        skipped: Object.keys(root.badImages).length,
+        queued: (root.dealQueues[root.poolKeyFor(root.primaryScreenName())] || []).length,
+        screens: root.displayedMap,
+        // What each shuffling display would get next, for the bar's tooltip.
+        next: root.nextPicks(),
+        shuffling: root.hasShuffling(),
+        shuffleOnWake: root.shuffleOnWake,
+        suspended: root.suspended,
+        // Whether the lock and idle services were found. Without them the wake
+        // shuffle silently never fires, which is otherwise indistinguishable
+        // from the setting not working.
+        wakeSourcesReady: !!root.lockService && !!root.idleService,
+        sessionLocked: root.sessionLocked,
+        screensaverShowing: root.screensaverShowing,
+        displays: root.screenNames()
+      })
+    }
+  }
+
+  // Poll the symlink so out-of-band changes (a theme switch that raced the
+  // IPC, another tool writing the link) still land. Idle in folder mode.
+  Timer {
+    interval: 2000
+    running: root.serviceActive && !root.folderMode
+    repeat: true
+    onTriggered: root.refreshBackground()
+  }
+
+  Timer {
+    id: autoShuffleTimer
+    interval: Math.max(1, root.intervalSec) * 1000
+    running: root.serviceActive && root.folderMode && root.intervalSec > 0
+    repeat: true
+    onTriggered: root.shuffle(false)
+  }
+
+  Timer {
+    id: pendingThemeFallbackTimer
+    interval: 300
+    repeat: false
+    onTriggered: root.applyPendingTheme()
+  }
+
+  NumberAnimation {
+    id: revealAnimation
+    target: root
+    property: "revealProgress"
+    from: 0
+    to: 1
+    duration: 420
+    easing.type: Easing.InOutCubic
+    onFinished: {
+      // Completion can be delivered after a newer generation started. Never
+      // promote or release a slot unless this generation was fully decoded.
+      if (root.revealStartedVersion !== root.backgroundVersion
+          || !root.incomingReadyForCurrentTransition(root.backgroundVersion)) return
+      var names = root.screenNames()
+      var next = ({})
+      for (var i = 0; i < names.length; i++) {
+        var n = names[i]
+        // Theme transitions decode a temporary cached snapshot (`path`) but
+        // report the durable theme file as `currentBackground` (`finalPath`).
+        // Keep the logical displayed path durable after the snapshot is
+        // removed. Folder mode has no global final path, so it keeps the
+        // incoming per-display value.
+        next[n] = root.hasFolder()
+          ? root.incomingMap[n] || root.displayedMap[n] || ""
+          : root.currentBackground || root.incomingMap[n] || root.displayedMap[n] || ""
+      }
+      root.displayedMap = next
+      // The incoming slot is already decoded and visible. Promote it instead
+      // of changing a base renderer's source and decoding the same file again.
+      root.frontSlot = root.frontSlot === 0 ? 1 : 0
+      // Release the previous wallpaper between transitions. The empty slot is
+      // populated again when the next wallpaper needs to be preloaded.
+      if (root.frontSlot === 0) root.slotBMap = ({})
+      else root.slotAMap = ({})
+      root.incomingMap = ({})
+      root.oldMap = ({})
+      root.revealProgress = 1
+      root.pruneStagedPinnedPaths()
+    }
+  }
+
+  // Anything that changes which images belong in which pool. Debounced into
+  // one rebuild: editing a folder field emits a change per keystroke, and a
+  // single panel action can write several keys in a row.
+  onDisplayConfigKeyChanged: { pinnedPoolFresh = false; configReload.restart() }
+  onPerDisplayConfigChanged: { pinnedPoolFresh = false; configReload.restart() }
+  onFolderChanged: { pinnedPoolFresh = false; configReload.restart() }
+  onPerDisplayChanged: if (hasFolder()) shuffle(false)
+
+  function deactivateService() {
+    configReload.stop()
+    scanProc.running = false
+    readlinkProc.running = false
+    pinnedLeaseRenewRetryTimer.stop()
+    pendingCurrentLinkSnapshotPath = ""
+    // PanelWindow variants are removed synchronously by serviceActive; defer
+    // clearing renderer references until their sourcePath bindings have settled.
+    Qt.callLater(function() {
+      displayedMap = ({})
+      incomingMap = ({})
+      oldMap = ({})
+      slotAMap = ({})
+      slotBMap = ({})
+      rendererSourcePaths = ({})
+      root.pruneStagedPinnedPaths()
+    })
+  }
+
+  onServiceActiveChanged: {
+    if (serviceActive) {
+      if (hasFolder()) prepareCurrentLinkState()
+      root.renewPinnedLeaseSnapshots()
+      configReload.restart()
+    }
+    else root.deactivateService()
+  }
+
+  Timer {
+    id: configReload
+    interval: 250
+    repeat: false
+    onTriggered: {
+      if (!root.hasServiceContext()) return
+      root.poolLoaded = false
+      if (root.hasFolder()) root.rescan()
+      else root.refreshBackground()
+    }
+  }
+
+  Connections {
+    target: Quickshell
+    // A newly-plugged display has no pick yet; deal it one.
+    function onScreensChanged() {
+      if (root.hasFolder()) root.shuffle(true)
+      else root.refreshBackground()
+    }
+  }
+
+  Component.onCompleted: {
+    if (!hasServiceContext()) return
+    if (hasFolder()) {
+      prepareCurrentLinkState()
+      rescan()
+    }
+    else refreshBackground()
+  }
+
+  Variants {
+    model: root.serviceActive ? Quickshell.screens : []
+
+    PanelWindow {
+      id: panel
+      required property var modelData
+
+      readonly property string screenKey: String(modelData.name)
+      readonly property string dispPath: root.displayedMap[screenKey] || ""
+      readonly property string incPath: root.incomingMap[screenKey] || ""
+      readonly property string oldPath: root.oldMap[screenKey] || ""
+      readonly property string slotAPath: root.slotAMap[screenKey] || ""
+      readonly property string slotBPath: root.slotBMap[screenKey] || ""
+      readonly property string scaling: root.configFor(screenKey).scaling
+
+      screen: modelData
+      visible: !remapGuard.remapping && !root.suspended
+      anchors { top: true; bottom: true; left: true; right: true }
+
+      ScreenMoveRemap {
+        id: remapGuard
+        window: panel
+      }
+      // Zoom covers the screen, so it keeps the transparency it always had.
+      // The fitting modes deliberately do not cover it, and the bars they
+      // leave should read as part of the theme rather than as a hole.
+      color: panel.scaling === "zoom" ? "transparent" : Commons.Color.background
+      // Keep render updates enabled. The background layer has been observed to
+      // lose its committed buffer while parked with updatesEnabled=false,
+      // leaving a black desktop until omarchy-shell is restarted.
+      updatesEnabled: true
+
+      // Report readiness unconditionally — not gated on revealProgress, which
+      // is what previously starved the second monitor of its reveal.
+      function reportIncomingReady() {
+        var path = panel.incPath
+        var version = root.backgroundVersion
+        if (!path) return
+        var frame = root.frontSlot === 0 ? frameB : frameA
+        if (!frame.ready) return
+        Qt.callLater(function() {
+          if (version !== root.backgroundVersion || panel.incPath !== path) return
+          var currentFrame = root.frontSlot === 0 ? frameB : frameA
+          if (!currentFrame.ready) return
+          root.noteIncomingReady(panel.screenKey, version, path)
+        })
+      }
+
+      WlrLayershell.namespace: "omarchy-background"
+      WlrLayershell.layer: WlrLayer.Background
+      WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+      exclusionMode: ExclusionMode.Ignore
+
+      // Centred with an explicit size rather than anchored to fill: three of
+      // the four scaling modes need a size the box cannot express. Anything
+      // larger than the screen is cropped by the layer surface, which is what
+      // "zoom" and an oversized "actual" both want.
+      WallpaperRenderer {
+        id: oldFrame
+        anchors.centerIn: parent
+        z: 1
+        width: root.scaledW(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+        height: root.scaledH(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+        sourcePath: root.renderPathFor(panel.oldPath)
+        onSourcePathChanged: root.updateRendererSource(panel.screenKey, "old", sourcePath)
+        fillModeName: panel.scaling
+        playing: !root.suspended && visible
+        visible: panel.oldPath !== "" && root.revealProgress < 1
+      }
+
+      Item {
+        id: frameALayer
+        anchors.fill: parent
+        z: root.frontSlot === 0 ? 0 : 2
+        visible: root.frontSlot === 0
+          ? panel.slotAPath !== ""
+          : panel.incPath !== "" && frameA.ready && (root.revealProgress >= 1 || root.revealArmed)
+        layer.enabled: root.frontSlot !== 0 && panel.incPath !== "" && root.revealProgress < 1
+        layer.smooth: true
+        layer.effect: MultiEffect {
+          maskEnabled: true
+          maskSource: revealMask
+          maskThresholdMin: 0.5
+          maskSpreadAtMin: 0.02
+        }
+
+        WallpaperRenderer {
+          id: frameA
+          anchors.centerIn: parent
+          width: root.scaledW(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+          height: root.scaledH(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+          sourcePath: root.renderPathFor(panel.slotAPath, root.slotAGeneration)
+          sourceGeneration: root.slotAGeneration
+          onSourcePathChanged: root.updateRendererSource(panel.screenKey, "slotA", sourcePath)
+          fillModeName: panel.scaling
+          preparing: !root.suspended && root.frontSlot !== 0 && panel.incPath !== "" && !frameA.ready
+          playing: !root.suspended && frameALayer.visible
+          onWallpaperReady: panel.reportIncomingReady()
+          onWallpaperError: function(path) { root.noteRendererError(panel.screenKey, 0, path) }
+        }
+      }
+
+      Item {
+        id: frameBLayer
+        anchors.fill: parent
+        z: root.frontSlot === 1 ? 0 : 2
+        visible: root.frontSlot === 1
+          ? panel.slotBPath !== ""
+          : panel.incPath !== "" && frameB.ready && (root.revealProgress >= 1 || root.revealArmed)
+        layer.enabled: root.frontSlot !== 1 && panel.incPath !== "" && root.revealProgress < 1
+        layer.smooth: true
+        layer.effect: MultiEffect {
+          maskEnabled: true
+          maskSource: revealMask
+          maskThresholdMin: 0.5
+          maskSpreadAtMin: 0.02
+        }
+
+        WallpaperRenderer {
+          id: frameB
+          anchors.centerIn: parent
+          width: root.scaledW(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+          height: root.scaledH(panel.scaling, implicitWidth, implicitHeight, parent.width, parent.height)
+          sourcePath: root.renderPathFor(panel.slotBPath, root.slotBGeneration)
+          sourceGeneration: root.slotBGeneration
+          onSourcePathChanged: root.updateRendererSource(panel.screenKey, "slotB", sourcePath)
+          fillModeName: panel.scaling
+          preparing: !root.suspended && root.frontSlot !== 1 && panel.incPath !== "" && !frameB.ready
+          playing: !root.suspended && frameBLayer.visible
+          onWallpaperReady: panel.reportIncomingReady()
+          onWallpaperError: function(path) { root.noteRendererError(panel.screenKey, 1, path) }
+        }
+      }
+
+      Item {
+        id: revealMask
+        anchors.fill: parent
+        visible: false
+        layer.enabled: true
+
+        readonly property real slant: -0.18
+        readonly property real centerTop: width / 2 - slant * height / 2
+        readonly property real centerBottom: width / 2 + slant * height / 2
+        readonly property real reach: width / 2 + Math.abs(slant) * height / 2 + 4
+        readonly property real spread: reach * root.revealProgress
+
+        Shape {
+          anchors.fill: parent
+          antialiasing: true
+          preferredRendererType: Shape.CurveRenderer
+          ShapePath {
+            fillColor: "white"
+            strokeColor: "transparent"
+            startX: revealMask.centerTop - revealMask.spread; startY: 0
+            PathLine { x: revealMask.centerTop + revealMask.spread; y: 0 }
+            PathLine { x: revealMask.centerBottom + revealMask.spread; y: revealMask.height }
+            PathLine { x: revealMask.centerBottom - revealMask.spread; y: revealMask.height }
+            PathLine { x: revealMask.centerTop - revealMask.spread; y: 0 }
+          }
+        }
+      }
+
+      Connections {
+        target: panel
+        function onIncPathChanged() {
+          panel.reportIncomingReady()
+        }
+      }
+
+      // A new transition can reuse an already-decoded path on one display;
+      // report against the new generation even when incPath itself is stable.
+      Connections {
+        target: root
+        function onIncomingMapChanged() {
+          panel.reportIncomingReady()
+        }
+      }
+
+      MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onDoubleClicked: function(mouse) {
+          if (mouse.button === Qt.RightButton) root.openThemeSwitcher()
+          else root.openSelector()
+          mouse.accepted = true
+        }
+      }
+    }
+  }
+}

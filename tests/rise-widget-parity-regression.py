@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static tooltip and interaction contracts for wallpaper manager and indicators.
+"""Static contracts for the substituted wallpaper widget and indicators.
 
 Run from the repository root:
 
@@ -11,6 +11,7 @@ multi-output behavior.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -20,11 +21,6 @@ ROOT = Path(__file__).resolve().parents[1]
 WALLPAPER = ROOT / "shinigami.wallpaper-manager"
 INDICATORS = ROOT / "shinigami.indicators"
 STATUS = ROOT / "shinigami.status" / "Service.qml"
-
-TOOLTIP = (
-    "Wallpaper manager · click to open · "
-    "middle-click for next on all displays"
-)
 
 
 def read(path: Path) -> str:
@@ -39,76 +35,70 @@ def require(condition: bool, message: str) -> None:
 
 
 def check_wallpaper() -> None:
-    logic = read(WALLPAPER / "rise/logic/WallpaperManagerQuickWidgetLogic.js")
-    rise_root = read(WALLPAPER / "rise/RiseRoot.qml")
+    manifest = json.loads(read(WALLPAPER / "manifest.json"))
     host = read(WALLPAPER / "BarWidget.qml")
-    mixin = read(WALLPAPER / "rise/components/TooltipMixin.qml")
+    background = read(WALLPAPER / "Background.qml")
 
     require(
-        "if (button === riseEnvironment.Qt.RightButton) {\n"
-        "        riseEnvironment.tip.show()\n"
-        "        return true\n"
-        "    }" in logic,
-        "wallpaper right-click no longer shows the tooltip only",
+        manifest.get("id") == "shinigami.wallpaper-manager",
+        "installed wallpaper plugin was not renamed to the Shinigami ID",
     )
     require(
-        "openWallpaperSettings" not in logic,
-        "wallpaper right-click still routes to settings",
+        manifest.get("name") == "Wallpapers"
+        and manifest.get("barWidget", {}).get("displayName") == "Wallpapers",
+        "wallpaper plugin visible name drifted from Wallpapers",
     )
     require(
-        "wallpaperManagerServiceApi.nextAll()" in logic,
-        "wallpaper middle-click lost nextAll()",
+        manifest.get("kinds") == ["bar-widget", "service"],
+        "wallpaper plugin lost its bar-widget/service ownership",
     )
     require(
-        "toggleWallpaperManager(riseOwner.screen, riseOwner)" in logic,
-        "wallpaper left-click lost toggleWallpaperManager()",
+        manifest.get("entryPoints", {}).get("barWidget") == "BarWidget.qml"
+        and manifest.get("entryPoints", {}).get("service") == "Background.qml",
+        "wallpaper plugin entry points drifted from the substituted plugin",
     )
     require(
-        "openWallpaperSettings" not in rise_root,
-        "wallpaper Rise facade still exposes a settings route",
+        'moduleName: "shinigami.wallpaper-manager"' in host
+        and 'ipcTarget: "shinigami.wallpaper-manager"' in host,
+        "wallpaper bar widget identity is not the Shinigami plugin ID",
     )
     require(
-        "openSettings" not in host
-        and "wallpaperomarchymanager" not in host,
-        "wallpaper host still exposes the settings route",
+        "if (buttonCode === Qt.MiddleButton) root.nextImage()\n"
+        "      else root.toggle()" in host,
+        "wallpaper click path lost left-toggle or middle-click next",
     )
     require(
-        "root.showTooltip(owner, text)" in mixin
-        and "root.hideTooltip(owner)" in mixin,
-        "wallpaper tooltip owner contract drifted",
-    )
-
-    for variant in ("v1", "v2"):
-        source = read(
-            WALLPAPER / f"rise/{variant}/WallpaperManagerQuickWidget.qml"
-        )
-        require(
-            f'readonly property string tooltipText: "{TOOLTIP}"' in source,
-            f"{variant} wallpaper tooltip text drifted from Rise",
-        )
-        require(
-            "acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton"
-            in source,
-            f"{variant} wallpaper accepted buttons lost right-click",
-        )
-        require(
-            "onEntered: tip.show()" in source
-            and "onExited: tip.hide()" in source,
-            f"{variant} wallpaper hover-tooltip wiring drifted",
-        )
-        require(
-            "TooltipMixin { id: tip; root: control.root; owner: control;"
-            in source,
-            f"{variant} wallpaper tooltip owner is not the widget",
-        )
-
-    v2 = read(
-        WALLPAPER / "rise/v2/WallpaperManagerQuickWidget.qml"
+        'text: "Wallpapers"' in host
+        and 'readonly property string previewTitle: "Wallpapers"'
+        ' + (version === "" ? "" : " v" + version)' in host,
+        "wallpaper panel labels are not Wallpapers",
     )
     require(
-        "enabled: !control.root.barUnlocked" in v2,
-        "V2 wallpaper lost its unlocked-bar edit guard",
+        "openWallpaperSettings" not in host
+        and "host.picker" not in host
+        and "wallpaperomarchymanager" not in host.lower(),
+        "wallpaper widget still routes to the removed third-party picker",
     )
+    require(
+        '(manifest && manifest.id) || "shinigami.wallpaper-manager"' in background
+        and 'target: "background"' in background,
+        "wallpaper service identity or background IPC target drifted",
+    )
+    for name in (
+        "Background.qml",
+        "BarWidget.qml",
+        "WallpaperRenderer.qml",
+        "publish-current-background.py",
+        "stage-pinned-media.py",
+    ):
+        require((WALLPAPER / name).is_file(), f"missing substituted file: {name}")
+    for path in WALLPAPER.iterdir():
+        if path.is_file() and path.suffix.lower() != ".png":
+            text = path.read_text(encoding="utf-8")
+            require(
+                "io.github.guiestrela.wallpaperomarchymanager" not in text,
+                f"legacy plugin ID survives in {path.name}",
+            )
 
 
 def check_indicators() -> None:
@@ -220,9 +210,9 @@ def main() -> int:
         check_wallpaper()
         check_indicators()
     except AssertionError as error:
-        print(f"rise widget parity regression failed: {error}", file=sys.stderr)
+        print(f"wallpaper/indicator parity regression failed: {error}", file=sys.stderr)
         return 1
-    print("rise widget parity regression passed")
+    print("wallpaper/indicator parity regression passed")
     return 0
 
 

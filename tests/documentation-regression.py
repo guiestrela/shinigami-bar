@@ -271,7 +271,7 @@ def main() -> None:
         "python3 tests/all24-scoped-service-regression.py",
         "tests/onedrive-plugin-regression.sh",
         "FixtureCatalogService.qml` only exposes observation IPC",
-        "exact 19 service owners",
+        "exact 20 service owners",
         "`--max-filesize 131072`",
         "`--max-filesize 65536`",
         "Loader destruction stops that timer",

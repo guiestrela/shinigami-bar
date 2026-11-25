@@ -35,7 +35,7 @@ Each plugin's `manifest.json` defines its Omarchy kinds and entry points.
 | `shinigami.indicators` | Standalone | System status and quick controls |
 | `shinigami.media` | G9 | Media controls and visualization |
 | `shinigami.quick-access` | G10 | Themes, idle inhibition, and media pickers |
-| `shinigami.wallpaper-manager` | Standalone | Wallpaper selection and rotation |
+| `shinigami.wallpaper-manager` | Standalone | Folder-backed per-display wallpapers, shuffle and scaling |
 | `shinigami.onedrive` | Standalone | Sync status, accounts, and notification routing |
 | `shinigami.network` | G11 | Network widget and panel |
 | `shinigami.battery` | G12 | Battery widget and panel |

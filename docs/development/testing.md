@@ -828,7 +828,7 @@ The fixtures do not claim a durable cross-store transaction or undo of an
 indeterminate native action.
 
 The separate all-suite regression materializes all 27 declared plugin roots in
-the pinned host. It verifies the exact 19 service owners, implementation and
+the pinned host. It verifies the exact 20 service owners, implementation and
 manifest binding, scoped host publication, and complete revocation when the
 Runtime retires. Platform owners are withheld and no output surface is created.
 This is not complete-host, renderer, hardware or desktop acceptance; complete

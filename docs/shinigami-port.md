@@ -14,7 +14,7 @@ bar entry in V1 and V2.
 | Plugin | Behavior | Service owner |
 | --- | --- | --- |
 | `shinigami.display-manager` | Opens monitor, scaling, text size, and brightness controls | `shinigami.display-manager` |
-| `shinigami.wallpaper-manager` | Opens the wallpaper picker or cycles wallpapers with middle-click | `shinigami.quick-access` |
+| `shinigami.wallpaper-manager` | Opens its wallpaper panel or cycles wallpapers with middle-click | `shinigami.wallpaper-manager` |
 | `shinigami.indicators` | Shows recording, Do Not Disturb, Stay Awake, and Voxtype status next to the clock | `shinigami.status` |
 | `shinigami.onedrive` | Shows sync status and opens the account panel | `shinigami.onedrive` |
 

@@ -17,7 +17,7 @@ styles and independently configurable widgets.</p>
 
 - **Bar styles** include V1 and the V2 Full, Fit, Dock, and Notch layouts. The Control Center manages the active style and widget placement.
 - **Display Manager** combines monitor configuration, scaling, text size, and brightness. Scroll over the widget to adjust brightness.
-- **Wallpaper Manager** opens the wallpaper picker. Middle-click advances wallpapers across displays. Right-click opens the per-display settings when wallpaperOmarchyManager is enabled, or the Plugins page otherwise.
+- **Wallpapers** opens its own per-display folder-backed wallpaper panel. Middle-click advances wallpapers across displays.
 - **Center** shows the clock, date, and weather. Click the clock to switch between 12- and 24-hour formats. Click the date for the calendar and its local Caldir agenda.
 - **Indicators** show recording, Do Not Disturb, Stay Awake, night light, remote sessions, reminders, passwordless sudo, and Voxtype beside the clock.
 - **OneDrive** has its own sync-status widget and account panel. Quick Access provides themes, idle inhibition, and screenshot and video pickers.

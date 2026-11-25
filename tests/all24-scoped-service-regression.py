@@ -31,7 +31,7 @@ EXPECTED_SCOPED_SERVICE_IDS = frozenset({
     "shinigami.center", "shinigami.media",
     "shinigami.quick-access", "shinigami.onedrive", "shinigami.network",
     "shinigami.display-manager", "shinigami.bluetooth",
-    "shinigami.storage",
+    "shinigami.storage", "shinigami.wallpaper-manager",
 })
 
 

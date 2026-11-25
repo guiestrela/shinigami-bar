@@ -385,7 +385,8 @@
     {
       "id": "shinigami.wallpaper-manager",
       "kinds": [
-        "bar-widget"
+        "bar-widget",
+        "service"
       ],
       "role": "wallpaper-manager",
       "bundle": "default",
