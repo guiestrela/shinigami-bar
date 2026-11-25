@@ -10,36 +10,28 @@ fail() {
 }
 
 widget="$repo_root/shinigami.wallpaper-manager/BarWidget.qml"
-presentation="$repo_root/shinigami.state/lib/presentation"
 
 [[ -s $widget ]] || fail "wallpaper BarWidget.qml is missing"
 
-for component in ShinigamiPillToolTip.qml ShinigamiPanelToolTip.qml; do
-  [[ -s "$presentation/$component" ]] || fail "canonical tooltip missing: $component"
-done
+# The panel must not paint its own tooltip surface. It delegates to the bar's
+# canonical tooltip overlay, which supplies the shared V1/V2 appearance and
+# placement.
+rg -Fq 'root.bar.showTooltip(riseButton, riseButton.tooltipText)' "$widget" \
+  || fail "panel tooltip is not delegated to the bar"
+rg -Fq 'root.bar.hideTooltip(riseButton)' "$widget" \
+  || fail "panel tooltip is not hidden on exit/click"
 
-rg -Fq 'import "../shinigami.state/lib/presentation" as Presentation' "$widget" \
-  || fail "wallpaper does not import the canonical presentation tooltips"
-rg -Fq 'readonly property var shinigamiTokens: root.barTokens' "$widget" \
-  || fail "wallpaper does not expose bar tokens to tooltip hosts"
-rg -Fq 'readonly property color controlForeground: root.fg' "$widget" \
-  || fail "wallpaper does not expose tooltip foreground"
-rg -Fq 'readonly property color controlBorderColor:' "$widget" \
-  || fail "wallpaper does not expose tooltip border color"
-rg -Fq 'readonly property string tooltipShellStyle:' "$widget" \
-  || fail "wallpaper does not resolve V1/V2 separately"
-
-rg -Fq 'Presentation.ShinigamiPillToolTip {' "$widget" \
-  || fail "V1 pill tooltip is missing"
-rg -Fq 'root.tooltipShellStyle === "shinigami"' "$widget" \
-  || fail "V1 tooltip visibility is not gated"
-rg -Fq 'Presentation.ShinigamiPanelToolTip {' "$widget" \
-  || fail "V2 panel tooltip is missing"
-rg -Fq 'root.tooltipShellStyle !== "shinigami"' "$widget" \
-  || fail "V2 tooltip visibility is not gated"
-
-if rg -Fq 'delay: 400' "$widget" || rg -Fq 'radius: 4' "$widget"; then
-  fail "legacy wallpaper tooltip surface is still present"
+if rg -Fq 'ToolTip {' "$widget"; then
+  fail "legacy local ToolTip surface is still present"
+fi
+rise_button=$(sed -n '/component RiseButton:/,/component RiseButtonGroup:/p' "$widget")
+if printf '%s' "$rise_button" | rg -Fq 'RectangularShadow {'; then
+  fail "panel-local tooltip shadow is still present"
+fi
+if rg -Fq 'tooltipBackground' "$widget" \
+  || rg -Fq 'tooltipBorderColor' "$widget" \
+  || rg -Fq 'tooltipCornerRadius' "$widget"; then
+  fail "panel-local tooltip surface tokens are still present"
 fi
 
 printf 'wallpaper tooltip regression passed\n'

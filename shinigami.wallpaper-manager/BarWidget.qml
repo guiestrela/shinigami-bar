@@ -7,7 +7,6 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
-import "../shinigami.state/lib/presentation" as Presentation
 
 // Local Rise-style restyle; stock signal/click paths preserved.
 // Bar icon + settings panel for the folder-backed background service.
@@ -320,17 +319,7 @@ Panel {
 
   // Follow the active Shinigami bar instead of the Commons control palette.
   readonly property var barTokens: bar && "visualTokens" in bar ? bar.visualTokens : null
-  readonly property var shinigamiTokens: root.barTokens
-  readonly property string tooltipShellStyle: root.barTokens
-    && root.barTokens.shellStyle !== undefined
-    ? String(root.barTokens.shellStyle) : "shinigami"
-  readonly property color controlForeground: root.fg
-  readonly property color controlBorderColor: root.barTokens
-    && root.barTokens.separator !== undefined
-    ? root.barTokens.separator : root.fg
-  readonly property color controlFillColor: root.barTokens
-    && root.barTokens.fillIdle !== undefined
-    ? root.barTokens.fillIdle : Commons.Color.tooltip.background
+
   readonly property color panelAccent: barTokens ? barTokens.seal
     : (bar && bar.urgent ? bar.urgent : Commons.Color.accent)
   readonly property color panelInk: barTokens ? barTokens.ink : fg
@@ -403,20 +392,6 @@ Panel {
 
     Behavior on color { ColorAnimation { duration: Style.duration(120) } }
 
-    Presentation.ShinigamiPillToolTip {
-      panel: root
-      visible: root.tooltipShellStyle === "shinigami"
-        && riseButton.tooltipText !== "" && mouse.containsMouse
-      text: riseButton.tooltipText
-    }
-
-    Presentation.ShinigamiPanelToolTip {
-      panel: root
-      visible: root.tooltipShellStyle !== "shinigami"
-        && riseButton.tooltipText !== "" && mouse.containsMouse
-      text: riseButton.tooltipText
-    }
-
     Row {
       id: row
       anchors.verticalCenter: parent.verticalCenter
@@ -460,9 +435,17 @@ Panel {
       hoverEnabled: true
       cursorShape: riseButton.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
-      onEntered: riseButton.hovered(true)
-      onExited: riseButton.hovered(false)
+      onEntered: {
+        riseButton.hovered(true)
+        if (riseButton.tooltipText !== "" && root.bar)
+          root.bar.showTooltip(riseButton, riseButton.tooltipText)
+      }
+      onExited: {
+        riseButton.hovered(false)
+        if (root.bar) root.bar.hideTooltip(riseButton)
+      }
       onClicked: function(m) {
+        if (root.bar) root.bar.hideTooltip(riseButton)
         if (riseButton.focusable) riseButton.forceActiveFocus()
         if (m.button === Qt.RightButton) riseButton.rightClicked()
         else riseButton.clicked()
