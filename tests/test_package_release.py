@@ -358,6 +358,12 @@ class PackageReleaseTests(unittest.TestCase):
                 "settingsStorageVersion": 1,
                 "payloadDigest": "6eb8ce380d21ad8454c33357198f917d63a8a5458ed5a69ba87583cec083bc26",
             },
+            "source-0.2.5": {
+                "suiteVersion": "0.2.5",
+                "sourceRevisions": ["9b8f1ad55a8975672c6f40e53d48c5ed5da3bc94"],
+                "settingsStorageVersion": 1,
+                "payloadDigest": "546fb54b2ec28ff00dfe00ddbf12b2868e9e1f2d0ddd9d8cd2a1c26016531c84",
+            },
         }
         self.assertEqual(set(states), set(expected))
         for identity_id, pinned in expected.items():
@@ -365,7 +371,7 @@ class PackageReleaseTests(unittest.TestCase):
                 state = states[identity_id]
                 for field, value in pinned.items():
                     self.assertEqual(state[field], value)
-                self.assertEqual(len(state["pluginIds"]), 24)
+                self.assertEqual(len(state["pluginIds"]), 27 if identity_id == "source-0.2.5" else 24)
                 self.assertEqual(
                     set(state["pluginDigests"]), set(state["pluginIds"])
                 )
