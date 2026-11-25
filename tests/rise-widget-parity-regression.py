@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static Rise parity contracts for wallpaper manager and indicators.
+"""Static tooltip and interaction contracts for wallpaper manager and indicators.
 
 Run from the repository root:
 
@@ -23,7 +23,8 @@ STATUS = ROOT / "shinigami.status" / "Service.qml"
 
 TOOLTIP = (
     "Wallpaper manager · click to open · "
-    "middle-click for next on all displays"
+    "middle-click for next on all displays · "
+    "right-click for settings"
 )
 
 
@@ -44,10 +45,10 @@ def check_wallpaper() -> None:
     host = read(WALLPAPER / "BarWidget.qml")
     mixin = read(WALLPAPER / "rise/components/TooltipMixin.qml")
 
-    require("Qt.RightButton" not in logic, "wallpaper logic still accepts right-click")
     require(
-        "openWallpaperSettings" not in logic,
-        "wallpaper logic still routes to settings",
+        "if (button === riseEnvironment.Qt.RightButton)\n"
+        "        return riseOwner.root.openWallpaperSettings()" in logic,
+        "wallpaper logic lost its right-click settings route",
     )
     require(
         "wallpaperManagerServiceApi.nextAll()" in logic,
@@ -58,13 +59,14 @@ def check_wallpaper() -> None:
         "wallpaper left-click lost toggleWallpaperManager()",
     )
     require(
-        "openWallpaperSettings" not in rise_root,
-        "wallpaper Rise facade still exposes a settings route",
+        "function openWallpaperSettings()" in rise_root
+        and "return host && host.openSettings()" in rise_root,
+        "wallpaper Rise facade lost its settings route",
     )
     require(
-        "openSettings" not in host
-        and "wallpaperomarchymanager" not in host,
-        "wallpaper host still exposes the non-Rise settings route",
+        "function openSettings()" in host
+        and "wallpaperomarchymanager" in host,
+        "wallpaper host lost its settings route",
     )
     require(
         "root.showTooltip(owner, text)" in mixin
@@ -81,8 +83,9 @@ def check_wallpaper() -> None:
             f"{variant} wallpaper tooltip text drifted from Rise",
         )
         require(
-            "acceptedButtons: Qt.LeftButton | Qt.MiddleButton" in source,
-            f"{variant} wallpaper accepted buttons drifted from Rise",
+            "acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton"
+            in source,
+            f"{variant} wallpaper accepted buttons lost right-click",
         )
         require(
             "onEntered: tip.show()" in source

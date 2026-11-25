@@ -5,5 +5,7 @@ function handleButton(riseOwner, riseEnvironment, button) {
     riseEnvironment.tip.hide()
     if (button === riseEnvironment.Qt.MiddleButton)
         return riseOwner.root.wallpaperManagerServiceApi.nextAll()
+    if (button === riseEnvironment.Qt.RightButton)
+        return riseOwner.root.openWallpaperSettings()
     return riseOwner.root.toggleWallpaperManager(riseOwner.screen, riseOwner)
 }
