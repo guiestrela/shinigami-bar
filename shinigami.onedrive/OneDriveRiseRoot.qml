@@ -22,18 +22,24 @@ QtObject {
   readonly property color fillIdle: token("fillIdle", "transparent")
   readonly property color fillHover: token("fillHover", "transparent")
   readonly property color fillActive: token("fillActive", "transparent")
-  readonly property color ink: host && host.widgetInk ? host.widgetInk : token("ink", "white")
+  readonly property color ink: host && host.panelInk ? host.panelInk : token("ink", "white")
   readonly property color seal: token("seal", "white")
   readonly property color sealRaw: seal
   readonly property color sumi: token("sumi", "gray")
   readonly property color sep: token("separator", "gray")
   readonly property color bg: token("paper", "black")
+  readonly property color tooltipInk: token("ink", host && host.bar
+    ? host.bar.foreground : "white")
+  readonly property color tooltipBackground: host && host.bar
+    && host.bar.background !== undefined
+      ? host.bar.background : token("panelBackground", token("paper", "black"))
   readonly property string mono: host && host.bar
     ? String(host.bar.fontFamily || "") : ""
   readonly property real panelRadius: token("panelRadius", 12)
   readonly property real panelButtonRadius: token("tileRadius", 8)
   readonly property real panelOuterBorderW: token("panelBorderWidth", 0)
   readonly property color panelOuterBorderColor: token("panelBorder", "transparent")
+  readonly property real tooltipRadius: token("tooltipRadius", 6)
   readonly property bool styleShadow: !!tokens && tokens.shadowEnabled === true
   readonly property string barPosition: host && host.bar
     ? String(host.bar.position || "") : "top"

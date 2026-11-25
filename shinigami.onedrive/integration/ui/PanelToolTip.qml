@@ -20,13 +20,25 @@ import QtQuick.Controls
 ToolTip {
   id: root
 
-  property color panelForeground: Tokens.Color.tooltip.text
-  property color panelBackground: Tokens.Color.tooltip.background
-  property color panelBorder: Tokens.Color.tooltip.border
+  property color panelForeground: Tokens.Style.theme
+      && Tokens.Style.theme.tooltipInk !== undefined
+    ? Tokens.Style.theme.tooltipInk : Tokens.Color.tooltip.text
+  property color panelBackground: Tokens.Style.theme
+      && Tokens.Style.theme.tooltipBackground !== undefined
+    ? Tokens.Style.theme.tooltipBackground : Tokens.Color.tooltip.background
+  property color panelBorder: Tokens.Style.theme
+      && Tokens.Style.theme.panelOuterBorderColor !== undefined
+    ? Tokens.Style.theme.panelOuterBorderColor : Tokens.Color.tooltip.border
+  property real panelBorderWidth: Tokens.Style.theme
+      && Tokens.Style.theme.panelOuterBorderW !== undefined
+    ? Tokens.Style.theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth
+  property real panelRadius: Tokens.Style.theme
+      && Tokens.Style.theme.tooltipRadius !== undefined
+    ? Tokens.Style.theme.tooltipRadius : Tokens.Style.tooltipRadius
   property string fontFamily: Tokens.Style.font.family
   property real fontSize: Tokens.Style.font.bodySmall
 
-  readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Tokens.Color.tooltip.border, Tokens.Style.tooltipBorderWidth)
+  readonly property var panelBorderSpec: Border.localOrSurfaceSpec("tooltip", "border", panelBorder, Tokens.Color.tooltip.border, root.panelBorderWidth)
 
   delay: 400
   padding: 0
@@ -34,7 +46,7 @@ ToolTip {
   background: Tokens.BorderSurface {
     color: root.panelBackground
     borderSpec: root.panelBorderSpec
-    radius: Tokens.Style.tooltipRadius
+    radius: root.panelRadius
   }
 
   contentItem: CommonComponents.UiText {

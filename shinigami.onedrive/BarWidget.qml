@@ -36,6 +36,8 @@ Item {
     ? tokens.widgetContentColor(settings,
       bar ? bar.urgent : Commons.Color.accent)
     : (bar ? bar.urgent : Commons.Color.accent)
+  readonly property color panelInk: tokens && "ink" in tokens
+    ? tokens.ink : (bar ? bar.foreground : Commons.Color.foreground)
 
   readonly property var targetWindow: root.QsWindow && root.QsWindow.window
     ? root.QsWindow.window : null

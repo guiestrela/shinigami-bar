@@ -47,7 +47,7 @@ Item {
   property var cursorItem: null
   readonly property var barIdentity: hostWidget || root
 
-  readonly property color foreground: theme.ink
+  readonly property color foreground: theme.tooltipInk !== undefined ? theme.tooltipInk : theme.ink
   readonly property color urgent: theme.sealRaw
   readonly property color dim: theme.sumi
   readonly property color faint: Util.alpha(theme.sumi, 0.65)
@@ -297,18 +297,36 @@ Item {
             }
           }
 
-          CommonComponents.UiText {
-            objectName: "onedrive-title"
+          Row {
             width: parent.width
-            height: 24
-            verticalAlignment: Text.AlignVCenter
-            text: "OneDrive"
-            textFormat: Text.PlainText
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-            font.weight: Font.Medium
-            font.letterSpacing: Style.titleLetterSpacing
+            spacing: Style.space(4)
+
+            CommonComponents.UiText {
+              objectName: "onedrive-title"
+              width: parent.width - headerActions.width - parent.spacing
+              height: 24
+              anchors.verticalCenter: parent.verticalCenter
+              text: "OneDrive"
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.title
+              font.weight: Font.Medium
+              font.letterSpacing: Style.titleLetterSpacing
+            }
+
+            Row {
+              id: headerActions
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              PanelActionButton {
+                iconText: "×"
+                tooltipText: "Close"
+                foreground: root.foreground
+                onClicked: root.close()
+              }
+            }
           }
 
           PanelSeparator { foreground: root.foreground }

@@ -6,5 +6,7 @@ QtObject {
     readonly property color background: Tokens.Style.theme ? Tokens.Style.theme.bg : "#202020"
     readonly property color accent: Tokens.Style.theme ? Tokens.Style.theme.seal : "#89b4fa"
     readonly property color urgent: Tokens.Style.theme ? Tokens.Style.theme.sealRaw : "#e06c75"
-    readonly property var tooltip: ({text: foreground, background: background, border: Tokens.Style.tooltipBorderColor})
+    readonly property var tooltip: Tokens.Style.theme && Tokens.Style.theme.tooltipInk !== undefined
+        ? ({text: Tokens.Style.theme.tooltipInk, background: Tokens.Style.theme.tooltipBackground, border: Tokens.Style.tooltipBorderColor})
+        : ({text: foreground, background: background, border: Tokens.Style.tooltipBorderColor})
 }

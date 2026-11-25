@@ -107,6 +107,25 @@ rg -Fq 'property alias pollingEnabled: adapter.pollingEnabled' "$service" \
   || fail "OneDrive service cannot receive host polling settings"
 rg -Fq 'property alias settings: adapter.settings' "$service" \
   || fail "OneDrive service cannot receive host widget settings"
+rg -Fq 'readonly property color tooltipInk: token("ink", host && host.bar' \
+  "$plugin/OneDriveRiseRoot.qml" \
+  || fail "OneDrive panel tooltip text does not follow the bar ink token"
+rg -Fq 'text: Tokens.Style.theme.tooltipInk' \
+  "$plugin/integration/ui/Color.qml" \
+  || fail "OneDrive panel tooltip colors do not follow the Shinigami bar tokens"
+rg -Fq 'readonly property real tooltipRadius: token("tooltipRadius", 6)' \
+  "$plugin/OneDriveRiseRoot.qml" \
+  || fail "OneDrive tooltip radius does not come from the bar tokens"
+rg -Fq '? Tokens.Style.theme.tooltipRadius : Tokens.Style.tooltipRadius' \
+  "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip frame does not use the bar tooltip radius"
+rg -Fq '? Tokens.Style.theme.panelOuterBorderW : Tokens.Style.tooltipBorderWidth' \
+  "$plugin/integration/ui/PanelToolTip.qml" \
+  || fail "OneDrive panel tooltip frame does not use the bar border width"
+rg -Fq 'id: headerActions' "$plugin/integration/Panel.qml" \
+  || fail "OneDrive panel has no header action row"
+rg -Fq 'tooltipText: "Close"' "$plugin/integration/Panel.qml" \
+  || fail "OneDrive panel has no close action"
 
 receiver_count=$(rg -l -F 'target: "io.github.salemsayed.omaonedrive"' \
   "$repo_root"/shinigami.*/*.qml | wc -l)
