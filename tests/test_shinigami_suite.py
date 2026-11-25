@@ -1586,7 +1586,11 @@ class SuiteLifecycleTests(unittest.TestCase):
 
     def test_current_package_rejects_byte_and_mode_drift(self) -> None:
         packaged_suite = self.packaged_suite()
-        drift_path = self.source / "shinigami.bar/Bar.qml"
+        drift_path = next(
+            spec.source / "Bar.qml"
+            for plugin_id, spec in packaged_suite.plugins.items()
+            if plugin_id.endswith(".bar")
+        )
         payload = drift_path.read_bytes()
         mode = stat.S_IMODE(drift_path.stat().st_mode)
         for mutation in ("bytes", "mode"):
@@ -1623,7 +1627,11 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(
             require_current_payload_identity(packaged_suite), "public-beta.15.1"
         )
-        drift_path = self.source / "shinigami.bar/Bar.qml"
+        drift_path = next(
+            spec.source / "Bar.qml"
+            for plugin_id, spec in packaged_suite.plugins.items()
+            if plugin_id.endswith(".bar")
+        )
         payload = drift_path.read_bytes()
         replacement = b" " if payload[-1:] != b" " else b"\n"
         drift_path.write_bytes(payload[:-1] + replacement)
@@ -1645,7 +1653,11 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(
             require_current_payload_identity(packaged_suite), "public-beta.15.1"
         )
-        drift_path = self.source / "shinigami.bar/Bar.qml"
+        drift_path = next(
+            spec.source / "Bar.qml"
+            for plugin_id, spec in packaged_suite.plugins.items()
+            if plugin_id.endswith(".bar")
+        )
         drift_path.chmod(drift_path.stat().st_mode | stat.S_IXUSR)
 
         with self.assertRaisesRegex(
@@ -1665,7 +1677,11 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(
             require_current_payload_identity(packaged_suite), "public-beta.14.1"
         )
-        drift_path = self.source / "shinigami.bar/Bar.qml"
+        drift_path = next(
+            spec.source / "Bar.qml"
+            for plugin_id, spec in packaged_suite.plugins.items()
+            if plugin_id.endswith(".bar")
+        )
         payload = drift_path.read_bytes()
         replacement = b" " if payload[-1:] != b" " else b"\n"
         drift_path.write_bytes(payload[:-1] + replacement)
