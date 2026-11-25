@@ -142,13 +142,18 @@ jq -e '
 [[ ! -e shinigami.menu && ! -e menu ]] \
   || fail "retired Shinigami App Menu source is still present"
 jq -e '
-  .retiredPlugins == ["shinigami.menu"] and
+  ([.retiredPlugins[] | select(. != "shinigami.menu" and . != "shinigami.brightness")] | length == 0) and
+  (.retiredPlugins | index("shinigami.menu") != null) and
+  (.retiredPlugins | index("shinigami.brightness") != null) and
   ([.plugins[].kinds[]] | index("menu") | not) and
   ([.plugins[].id] | index("shinigami.menu") | not) and
+  ([.plugins[].id] | index("shinigami.brightness") | not) and
   ([.profiles[].install[]] | index("shinigami.menu") | not) and
-  ([.profiles[].enableServices[]] | index("shinigami.menu") | not)
+  ([.profiles[].install[]] | index("shinigami.brightness") | not) and
+  ([.profiles[].enableServices[]] | index("shinigami.menu") | not) and
+  ([.profiles[].enableServices[]] | index("shinigami.brightness") | not)
 ' contracts/plugin-suite-v1.json >/dev/null \
-  || fail "suite still installs or exposes the retired Shinigami App Menu"
+  || fail "suite still installs or exposes a retired Shinigami plugin"
 
 rg -q '^Item \{' shinigami.bar/Bar.qml || fail "shinigami.bar/Bar.qml must use Item as its root"
 if rg -q '^ShellRoot \{' shinigami.bar/Bar.qml; then
