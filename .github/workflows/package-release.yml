@@ -29,6 +29,21 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch historical predecessor tags
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force \
+            https://github.com/HANCORE-linux/Shibumi-Shell.git \
+            refs/tags/v0.1.1-beta.7:refs/tags/v0.1.1-beta.7 \
+            refs/tags/v0.1.1-beta.14.1:refs/tags/v0.1.1-beta.14.1 \
+            refs/tags/v0.1.1-beta.15:refs/tags/v0.1.1-beta.15 \
+            refs/tags/v0.1.1-beta.15.1:refs/tags/v0.1.1-beta.15.1 \
+            refs/tags/v0.1.1-beta.15.2:refs/tags/v0.1.1-beta.15.2 \
+            refs/tags/v0.1.1-beta.15.3:refs/tags/v0.1.1-beta.15.3 \
+            refs/tags/v0.1.1-beta.15.4:refs/tags/v0.1.1-beta.15.4 \
+            refs/tags/v0.1.1-beta.16:refs/tags/v0.1.1-beta.16 \
+            refs/tags/v0.2.4:refs/tags/v0.2.4
+
       - name: Validate package contracts
         run: |
           set -euo pipefail
@@ -79,6 +94,21 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Fetch historical predecessor tags
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force \
+            https://github.com/HANCORE-linux/Shibumi-Shell.git \
+            refs/tags/v0.1.1-beta.7:refs/tags/v0.1.1-beta.7 \
+            refs/tags/v0.1.1-beta.14.1:refs/tags/v0.1.1-beta.14.1 \
+            refs/tags/v0.1.1-beta.15:refs/tags/v0.1.1-beta.15 \
+            refs/tags/v0.1.1-beta.15.1:refs/tags/v0.1.1-beta.15.1 \
+            refs/tags/v0.1.1-beta.15.2:refs/tags/v0.1.1-beta.15.2 \
+            refs/tags/v0.1.1-beta.15.3:refs/tags/v0.1.1-beta.15.3 \
+            refs/tags/v0.1.1-beta.15.4:refs/tags/v0.1.1-beta.15.4 \
+            refs/tags/v0.1.1-beta.16:refs/tags/v0.1.1-beta.16 \
+            refs/tags/v0.2.4:refs/tags/v0.2.4
 
       - name: Verify the remote tag peels to the workflow commit
         run: |
