@@ -877,7 +877,7 @@ def command_update(
     retired_config_ids = (
         set(suite.retired_plugins)
         | retired_live_ids
-        | (installed_ids & set(aliases))
+        | ((installed_ids & set(aliases)) - set(suite.plugins))
     )
     # Archived roots remain the previous IDs for config reconciliation: every
     # current ID is therefore introduced and written under its new namespace.
@@ -892,7 +892,7 @@ def command_update(
 
     def desired_for(config: dict[str, Any]) -> dict[str, Any]:
         config = storage_config(config)
-        return remove_plugin_ids((
+        desired = remove_plugin_ids((
             preserve_external_bar(
                 config,
                 profile,
@@ -912,6 +912,9 @@ def command_update(
                 profile,
             )
         ), retired_config_ids)
+        if archived_state and not external:
+            desired.setdefault("bar", {})["id"] = profile.active_bar
+        return desired
 
     current = storage_config(current)
     drift = (
@@ -966,7 +969,9 @@ def command_update(
             suite,
             plugin_ids,
             profile_id,
-            str(state.get("activeBar") or "shinigami.bar"),
+            profile.active_bar if archived_state else str(
+                state.get("activeBar") or "shinigami.bar"
+            ),
             revision,
             payload_digest,
             plugin_digests,
@@ -1028,7 +1033,7 @@ def command_repair(
     retired_config_ids = (
         set(suite.retired_plugins)
         | retired_live_ids
-        | (installed_ids & set(aliases))
+        | ((installed_ids & set(aliases)) - set(suite.plugins))
     )
     # Archived roots remain the previous IDs for config reconciliation: every
     # current ID is therefore introduced and written under its new namespace.

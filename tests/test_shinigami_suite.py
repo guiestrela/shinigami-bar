@@ -1942,6 +1942,7 @@ class SuiteLifecycleTests(unittest.TestCase):
                     "--",
                     *plugin_ids_at_revision(source_revision),
                     "contracts/plugin-suite-v1.json",
+                    "contracts/lifecycle-predecessors-v1.json",
                     "packaging/package-metadata.json",
                 ],
                 check=True,
@@ -1949,6 +1950,41 @@ class SuiteLifecycleTests(unittest.TestCase):
             ).stdout
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
                 bundle.extractall(self.source, filter="data")
+            # The historical contract predates later commit-to-identity
+            # bindings. Merge those bindings from the authoritative current
+            # contract so the projected payload remains exactly identifiable.
+            predecessor_path = (
+                self.source / "contracts/lifecycle-predecessors-v1.json"
+            )
+            predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
+            current_predecessor = json.loads(
+                (REPO_ROOT / "contracts/lifecycle-predecessors-v1.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            def identity_key(item: dict[str, object]) -> tuple[object, ...]:
+                return (
+                    item["suiteVersion"],
+                    item["payloadDigest"],
+                    tuple(item["pluginIds"]),
+                    tuple(sorted(item["pluginDigests"].items())),
+                    item["settingsStorageVersion"],
+                )
+
+            revisions_by_identity: dict[tuple[object, ...], list[str]] = {}
+            for item in current_predecessor["states"]:
+                revisions_by_identity.setdefault(identity_key(item), []).extend(
+                    item["sourceRevisions"]
+                )
+            for item in predecessor["states"]:
+                known = revisions_by_identity.get(identity_key(item), [])
+                item["sourceRevisions"] = list(
+                    dict.fromkeys([*item["sourceRevisions"], *known])
+                )
+            predecessor_path.write_text(
+                json.dumps(predecessor, indent=2) + "\n", encoding="utf-8"
+            )
             metadata_source = self.source / "packaging/package-metadata.json"
             suite_contract = json.loads(
                 suite_contract_path.read_text(encoding="utf-8")
