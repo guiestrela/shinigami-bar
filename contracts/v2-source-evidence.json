@@ -92,7 +92,7 @@
       "id": "brightness",
       "strategy": "port",
       "sources": ["modules/BrightnessWidget.qml", "panels/BrightnessPanel.qml"],
-      "implementation": ["shinigami.display-manager/BarWidget.qml", "shinigami.display-manager/MonitorPanelBridge.qml"],
+      "implementation": ["shinigami.display-manager/BarWidget.qml", "shinigami.display-manager/Service.qml", "shinigami.display-manager/DisplayManagerController.qml", "shinigami.display-manager/DisplayManagerPanelContent.qml", "shinigami.display-manager/BrightnessPanel.qml", "shinigami.display-manager/ShinigamiPanel.qml", "shinigami.display-manager/scripts/shinigami-display-manager-apply", "shinigami.display-manager/scripts/shinigami-display-manager-guard"],
       "evidence": ["tests/brightness-plugin-regression.sh", "tests/brightness-plugin-smoke.qml"]
     },
     {

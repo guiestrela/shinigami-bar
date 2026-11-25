@@ -308,9 +308,7 @@
         "shinigami.state"
       ],
       "recommends": [],
-      "hostContracts": [
-        "omarchy.monitor"
-      ]
+      "hostContracts": []
     },
     {
       "id": "shinigami.power-profile",

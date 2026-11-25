@@ -24,7 +24,6 @@ mappings=(
   "shared/runtime/HostWidgetEmbed.qml:shinigami.center/HostWidgetEmbed.qml"
   "shared/runtime/HostWidgetEmbed.qml:shinigami.status/HostWidgetEmbed.qml"
   "shared/runtime/HostWidgetEmbed.qml:shinigami.audio/HostWidgetEmbed.qml"
-  "shared/runtime/HostWidgetEmbed.qml:shinigami.display-manager/HostWidgetEmbed.qml"
   "shared/presentation/WaterRing.qml:shinigami.cpu/WaterRing.qml"
   "shared/presentation/WaterRing.qml:shinigami.battery/WaterRing.qml"
   "shared/presentation/WaterRing.qml:shinigami.temperature/WaterRing.qml"

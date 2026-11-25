@@ -42,9 +42,10 @@ Ui.Panel {
     ? monitorService.brightnessPercent : 0
   readonly property int displayCount: monitorReady
     && Array.isArray(monitorService.displays) ? monitorService.displays.length : 0
-  readonly property string tooltipText: !monitorReady ? "Display unavailable"
-    : brightnessAvailable ? "Brightness · " + percent + "%"
-    : "Display Manager · click to configure monitors"
+  // Match the Rise Display Manager face: the tooltip names the surface and its
+  // action rather than duplicating the live brightness value already shown in
+  // the panel.
+  readonly property string tooltipText: "Display Manager · click to configure monitors"
   readonly property var panelItem: popupLoader.item
   readonly property bool panelLoaded: panelItem !== null
   readonly property var interactionTarget: actionButton
@@ -57,6 +58,19 @@ Ui.Panel {
   function setting(name, fallback) {
     const value = settings ? settings[name] : undefined
     return value === undefined || value === null ? fallback : value
+  }
+
+  // Rise themes this face by G21; Shinigami's authoritative display group is
+  // G13. The face passes G13, while visual tokens read this widget's own plugin
+  // settings, so the mapping cannot change backend ownership.
+  function widgetContentColor(groupId, fallback) {
+    return tokens && typeof tokens.widgetContentColor === "function"
+      ? tokens.widgetContentColor(settings, fallback) : fallback
+  }
+
+  function widgetHasFill(groupId) {
+    return tokens && typeof tokens.widgetHasFill === "function"
+      ? tokens.widgetHasFill(settings) : false
   }
 
   function childPanelWidget(pluginId) {

@@ -286,8 +286,12 @@ if rg -q 'registered(Component|Source)|registeredWidget(Component|Source)' \
     shinigami.network/Service.qml; then
   fail "native Network owner still resolves a host feature component"
 fi
-rg -Fq 'embed.resolveComponent("", "omarchy.monitor")' shinigami.display-manager/Service.qml \
-  || fail "shipped monitor owner bypasses the stable widget resolver"
+rg -Fq 'target: "omarchy.monitor"' shinigami.display-manager/Service.qml \
+  || fail "native display owner lost the legacy monitor IPC identity"
+if rg -q 'MonitorPanelBridge|HostWidgetEmbed|embed\.resolveComponent|embed\.resolveSource' \
+    shinigami.display-manager; then
+  fail "native display owner reinstated a hidden official backend resolver"
+fi
 if rg -q 'registeredWidgetComponent\("omarchy\.bluetooth"\)' \
     shinigami.bluetooth/Service.qml; then
   fail "shipped Bluetooth owner must not instantiate the complete host widget"
@@ -835,39 +839,38 @@ rg -q 'G13: \["shinigami.display-manager"\]' shinigami.bar/core/GroupRegistry.js
   || fail "G13 is not owned by the Shinigami brightness presentation"
 rg -q 'shinigami\.display-manager' contracts/plugin-suite-v1.json \
   || fail "Shinigami brightness presentation is not registered"
-[[ $(rg -c 'MonitorPanelBridge \{' shinigami.display-manager/Service.qml) -eq 1 ]] \
-  || fail "brightness service must own exactly one official backend"
+[[ $(rg -c '^  DisplayManagerController \{' shinigami.display-manager/Service.qml || true) -eq 1 ]] \
+  || fail "brightness service must own exactly one Rise-backed controller"
 rg -q 'serviceFor\("shinigami\.display-manager"\)' \
   shinigami.display-manager/BarWidget.qml \
-  || fail "brightness view does not consume the shared monitor owner"
+  || fail "brightness view does not consume the shared display owner"
+rg -Fq 'readonly property var controllerApi: controller' \
+  shinigami.display-manager/Service.qml \
+  || fail "display owner does not expose the controller facade"
+rg -Fq 'DisplayManagerPanelContent {' shinigami.display-manager/BrightnessPanel.qml \
+  || fail "visible panel does not host the full Rise display content"
+rg -Fq 'readonly property var controller: service.controllerApi' \
+  shinigami.display-manager/DisplayManagerPanelContent.qml \
+  || fail "Rise display content bypasses the single display owner"
 if rg -q 'Quickshell\.Services\.UPower|UPower\.|Quickshell\.Io' \
-  shinigami.display-manager/BarWidget.qml shinigami.display-manager/BrightnessPanel.qml \
-  shinigami.display-manager/MonitorPanelBridge.qml shinigami.display-manager/Service.qml; then
-  fail "Shinigami brightness presentation must not create a second monitor owner"
+  shinigami.display-manager/BarWidget.qml \
+  shinigami.display-manager/BrightnessPanel.qml \
+  shinigami.display-manager/DisplayManagerPanelContent.qml; then
+  fail "Shinigami brightness presentation must not create a second display owner"
 fi
-if rg -q 'Process \{|FileView \{' shinigami.display-manager/BarWidget.qml \
-  shinigami.display-manager/BrightnessPanel.qml shinigami.display-manager/Service.qml \
-  shinigami.display-manager/MonitorPanelBridge.qml \
-  || rg -q 'Timer \{' shinigami.display-manager/BarWidget.qml \
-    shinigami.display-manager/BrightnessPanel.qml shinigami.display-manager/Service.qml; then
-  fail "brightness presentation and monitor adapter must remain worker-free"
+if rg -q 'Process \{|FileView \{|Timer \{' \
+  shinigami.display-manager/BarWidget.qml \
+  shinigami.display-manager/BrightnessPanel.qml \
+  shinigami.display-manager/DisplayManagerPanelContent.qml; then
+  fail "brightness and Rise display presentation must remain worker-free"
 fi
-bridge=shinigami.display-manager/MonitorPanelBridge.qml
-[[ $(rg -o 'Timer[[:space:]]*\{' "$bridge" | wc -l) -eq 2 ]] \
-  || fail "monitor adapter must own exactly two deferred timers"
-if rg -q '\b(repeat|running)[[:space:]]*:' "$bridge"; then
-  fail "monitor adapter deferred timers must not repeat or run independently"
-fi
-rg -Uq 'Timer \{\n[[:space:]]*id: panelSync\n[[:space:]]*interval: 0\n[[:space:]]*onTriggered: root\.syncPanelSource\(\)\n[[:space:]]*\}' "$bridge" \
-  || fail "monitor adapter panel sync is not zero-interval and owner-bound"
-rg -Uq 'Timer \{\n[[:space:]]*id: panelInjection\n[[:space:]]*interval: 0\n[[:space:]]*onTriggered: root\.injectPanel\(\)\n[[:space:]]*\}' "$bridge" \
-  || fail "monitor adapter panel injection is not zero-interval and owner-bound"
-rg -Uq 'function onOpenedChanged\(\) \{\n[^\n]*\n[[:space:]]*if \(typeof root\.panel\.close === "function"\) root\.panel\.close\(\)\n[[:space:]]*root\.summonVisiblePanel\(\)' "$bridge" \
-  || fail "monitor adapter does not close the hidden panel before redirecting"
-rg -Uq 'function shutdown\(\) \{\n([^\n]*\n){0,4}[[:space:]]*panelSync\.stop\(\)\n[[:space:]]*panelInjection\.stop\(\)' "$bridge" \
-  || fail "monitor adapter shutdown does not stop every deferred timer"
-if rg -q '^[[:space:]]*selected:' shinigami.display-manager/BrightnessPanel.qml; then
-  fail "brightness panel uses Button-only selected state on CursorSurface"
+if rg -q 'PanelWindow|PopupWindow' \
+  shinigami.display-manager/BarWidget.qml \
+  shinigami.display-manager/Service.qml \
+  shinigami.display-manager/BrightnessPanel.qml \
+  shinigami.display-manager/DisplayManagerPanelContent.qml \
+  shinigami.display-manager/DisplayManagerController.qml; then
+  fail "display backend or passive content must not open a second visible surface"
 fi
 rg -q 'G12: \["shinigami.battery"\]' shinigami.bar/core/GroupRegistry.js \
   || fail "G12 is not owned by the Shinigami battery presentation"

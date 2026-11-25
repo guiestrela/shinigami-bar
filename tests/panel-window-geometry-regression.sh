@@ -53,7 +53,7 @@ expected = {
     "shinigami.audio/AudioPanel.qml": "fedbe78ccc91b1e86764eaa5234f64b1f2519555b47cc6043ded86e6127d7d4e",
     "shinigami.battery/BatteryPanel.qml": "206ca91629a5ffba449566fdf0c278287eaf6e7adaac9ddbc11dd91834594720",
     "shinigami.bluetooth/BluetoothPanel.qml": "44a5f3dd0346cf31ec470f783a46b97fd7dffbc4aa2e97cc6f8fabee533988fa",
-    "shinigami.display-manager/BrightnessPanel.qml": "44a5f3dd0346cf31ec470f783a46b97fd7dffbc4aa2e97cc6f8fabee533988fa",
+    "shinigami.display-manager/BrightnessPanel.qml": "35ee4885b8d42864c096881818b06b74f51cdef044b131ce1e6bfde981fde635",
     "shinigami.center/CalendarPanel.qml": "4c4b6cd37c2284166e5f06bd037d1173952a855c6a8be91e45b9c359c8cd18f2",
     "shinigami.center/WeatherPanel.qml": "4946234427c56d54fbc5e7f884802ef5b800e7ccd5567c3ffb4fe1b8fc8294dd",
     "shinigami.control-center/ControlCenterPanel.qml": "c94871647554290ab86a21b2184c95525934be5cacf5b8e28ebcde7645323f26",

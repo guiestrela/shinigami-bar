@@ -1,24 +1,44 @@
 import QtQuick
 import Quickshell
 import "brightness" as Brightness
-import "fixtures" as Fixtures
 
 ShellRoot {
   id: root
 
   property int phase: 0
   property int phaseTicks: 0
-  property real fullWidth: 0
   property var clickTargets: []
   property int summonCount: 0
-  property int scopedSummonCount: 0
-  property string scopedSummonId: ""
+  property bool hiddenBarWidget: false
   property var scopedVisualLease: null
   property var teardownLease: null
 
   function fail(message) {
-    console.error("brightness-widget-smoke:", message)
+    console.error("brightness plugin smoke:", message)
     Qt.exit(1)
+  }
+
+  function findObject(object, objectName) {
+    if (!object || typeof object !== "object") return null
+    if (object.objectName === objectName) return object
+    const children = "children" in object ? object.children : []
+    for (const child of children) {
+      const found = findObject(child, objectName)
+      if (found !== null) return found
+    }
+    return null
+  }
+
+  QtObject {
+    id: fakeState
+    signal configChanged()
+    property var settings: ({ displayManagerAutoWorkspaces: true })
+    function setWidgetSetting(group, module, key, value) {
+      if (group !== "G13" || module !== "shinigami.display-manager") return false
+      settings[key] = value
+      configChanged()
+      return true
+    }
   }
 
   Item {
@@ -32,35 +52,17 @@ ShellRoot {
     property string position: "top"
     property string fontFamily: "monospace"
     property color foreground: "#eeeeee"
+    property color background: "#111111"
     property color barForeground: foreground
     property color urgent: "#88bbee"
     property bool foregroundAnimationEnabled: false
     property var activePopout: null
     property var clickTargets: root.clickTargets
-    property var shell: visualShell
-    property var barWidgetRegistry: null
-    property var monitorService: sharedMonitorService
-    property var visualTokens: ({
-      pillHeight: 24,
-      pillRadius: 12,
-      pillPaddingX: 9,
-      pill: "#332f2f",
-      pillBorder: "#555050",
-      pillBorderWidth: 1,
-      pillShadow: "#000000",
-      shadowEnabled: false,
-      slotHeight: 28,
-      contentGap: 5,
-      compactGap: 4,
-      labelSize: 12,
-      iconSize: 15
-    })
+    property var shell: fakeShell
 
-    function registeredWidgetSource(_id) { return "" }
-    function registeredWidgetComponent(_id) { return null }
     function widgetSettings(group, module) {
-      return group === "G13" && module === "omarchy.monitor"
-        ? ({ testSetting: "retained" }) : ({})
+      return group === "G13" && module === "shinigami.display-manager"
+        ? fakeState.settings : ({})
     }
     function registerClickTarget(target) {
       if (root.clickTargets.indexOf(target) < 0)
@@ -75,77 +77,38 @@ ShellRoot {
     function releasePopout(owner) { if (activePopout === owner) activePopout = null }
     function switchPanelFrom(_owner, _direction) { return false }
     function targetBelongsToWindow(_target, _window) { return true }
+    function isBarWidgetOpen(id) { return id === "shinigami.display-manager" && activePopout !== null }
     function summonBarWidget(id) {
-      if (id !== "omarchy.monitor") return false
+      if (id !== "shinigami.display-manager") return false
       root.summonCount++
       return true
     }
-  }
-
-  Component {
-    id: monitorPanelComponent
-    Fixtures.MonitorTestPanel {}
-  }
-
-  Component {
-    id: forwardPanelComponent
-    Item {
-      property string focusedMonitor: "HDMI-A-1"
-      property string selectedName: "eDP-1"
-      property bool brightnessAvailable: true
-      property bool opened: false
-      property var displays: [{ name: "HDMI-A-1", enabled: true }, { name: "eDP-1", enabled: true }]
-      property var calls: []
-      function previewBrightness(name, value) { calls = calls.concat([[name, value]]) }
-      function setScale(name, scale) { calls = calls.concat([[name, scale]]) }
-      function setBrightness(value) { calls = calls.concat([[value]]) }
-    }
-  }
-  Brightness.MonitorPanelBridge {
-    id: forwardBridge
-    bar: fakeBar; ownerShell: visualShell; ownerWidget: fakeBar
-    panelComponent: forwardPanelComponent
-  }
-  QtObject {
-    id: visualShell
-    function summon(_id, _payload) { return true }
-  }
-
-  QtObject {
-    id: scopedBarState
-    property bool barHidden: false
-    property int barSize: 35
-    property string fontFamily: "monospace"
-    property string position: "top"
-  }
-  QtObject {
-    id: scopedShell
-    property string pluginId: "shinigami.display-manager"
-    property var bar: scopedBarState
-    function summon(id, _payload) {
-      root.scopedSummonCount++
-      root.scopedSummonId = String(id || "")
+    function hideBarWidget(id) {
+      if (id !== "shinigami.display-manager") return false
+      root.hiddenBarWidget = true
       return true
     }
+    function activePopoutForScreen(_screen) { return activePopout }
+    function publishConnectedPanel(_key, _screen, _x, _reveal) {}
+    function clearConnectedPanel(_key) {}
   }
+
   QtObject {
-    id: scopedWidgetRegistry
-    property int revision: 1
-    property var widgets: ({ "omarchy.monitor": {
-      component: monitorPanelComponent, metadata: ({})
-    }})
+    id: fakeShell
+    property var bar: fakeBar
+    function serviceFor(id) {
+      if (id === "shinigami.display-manager") return sharedMonitorService
+      if (id === "shinigami.state") return fakeState
+      return null
+    }
+    function summon(_id, _payload) { return true }
+    function hide(_id) { return true }
   }
 
   Brightness.Service {
     id: sharedMonitorService
+    shell: fakeShell
     bar: fakeBar
-    panelComponent: monitorPanelComponent
-  }
-
-  Brightness.Service {
-    id: scopedMonitorService
-    shell: scopedShell
-    barWidgetRegistry: scopedWidgetRegistry
   }
 
   Item { id: teardownLeaseHolder; visible: false }
@@ -155,17 +118,8 @@ ShellRoot {
     sourceComponent: Component {
       Brightness.Service {
         bar: fakeBar
-        panelComponent: monitorPanelComponent
       }
     }
-  }
-
-  QtObject {
-    id: unavailableService
-    property bool ready: false
-    property bool brightnessAvailable: false
-    property int brightnessPercent: 0
-    property var displays: []
   }
 
   Loader {
@@ -176,7 +130,7 @@ ShellRoot {
         bar: fakeBar
         settings: ({ compact: false })
         monitorServiceOverride: sharedMonitorService
-        popupSource: Qt.resolvedUrl("fixtures/MonitorTestView.qml")
+        popupSource: Qt.resolvedUrl("MonitorTestView.qml")
       }
     }
   }
@@ -189,7 +143,7 @@ ShellRoot {
         bar: fakeBar
         settings: ({ compact: false })
         monitorServiceOverride: sharedMonitorService
-        popupSource: Qt.resolvedUrl("fixtures/MonitorTestView.qml")
+        popupSource: Qt.resolvedUrl("MonitorTestView.qml")
       }
     }
   }
@@ -197,175 +151,177 @@ ShellRoot {
   Brightness.BarWidget {
     id: unavailableBrightness
     bar: fakeBar
-    monitorServiceOverride: unavailableService
+    monitorServiceOverride: QtObject {
+      readonly property bool ready: false
+      readonly property bool brightnessAvailable: false
+      readonly property int brightnessPercent: 0
+      readonly property var displays: []
+    }
   }
 
   Timer {
-    interval: 80
+    interval: 50
     repeat: true
     running: true
     onTriggered: {
       root.phaseTicks++
       const first = firstLoader.item
       const second = secondLoader.item
-      const backend = sharedMonitorService.backend
+      const api = sharedMonitorService.controllerApi
 
       if (root.phase === 0) {
-        if (!first || !second || !backend || !sharedMonitorService.ready
-            || !scopedMonitorService.ready || !teardownServiceLoader.item
-            || !teardownServiceLoader.item.ready || root.phaseTicks < 3) return
+        if (!first || !second || !api || !sharedMonitorService.ready
+            || !teardownServiceLoader.item || !teardownServiceLoader.item.ready
+            || root.phaseTicks < 3) return
         if (first.monitorService !== second.monitorService
             || first.monitorService !== sharedMonitorService
             || !first.brightnessAvailable || first.percent !== 64
             || first.displayCount !== 2 || first.implicitHeight !== 35
-            || !sharedMonitorService.textSizeAvailable
-            || sharedMonitorService.textSizePx !== 12
-            || sharedMonitorService.textSizeIndex !== 3
+            || first.tooltipText !== "Display Manager · click to configure monitors"
             || unavailableBrightness.visible)
-          return root.fail("shared backend readiness/state/geometry")
-        if (backend.opacity !== 0 || backend.manageIpc !== false
-            || backend.settings.testSetting !== "retained")
-          return root.fail("hidden official owner/settings")
-        const scopedBackend = scopedMonitorService.backend
-        if (scopedMonitorService.panelComponent !== monitorPanelComponent
-            || String(scopedMonitorService.panelSource) !== ""
-            || scopedBackend.bar.barSize !== 35
-            || scopedBackend.bar.fontFamily !== "monospace"
-            || scopedBackend.bar.shell !== scopedShell
-            || String(scopedBackend.bar.foreground) === ""
-            || String(scopedBackend.bar.background) === ""
-            || String(scopedBackend.bar.urgent) === "")
-          return root.fail("scoped component/scalar-bar visual bridge")
-        if (first.childPanelWidget("omarchy.monitor") !== first
-            || second.childPanelWidget("omarchy.monitor") !== second
-            || !first.ownsPanelWidget(first))
-          return root.fail("screen-local alias routing")
+          return root.fail("shared Rise owner readiness/state/geometry")
+        if (api.previewMonitors.length !== 2
+            || api.previewMonitor("eDP-1") === null
+            || Number(api.previewPositions["DP-1"].x) !== 1920
+            || api.scalePresets.length !== 7
+            || api.textSizeStops.length !== 7
+            || sharedMonitorService.textSizePx !== 12)
+          return root.fail("controller state facade")
         if (root.clickTargets.length !== 2
             || sharedMonitorService._visualBarLeases.length !== 2
             || sharedMonitorService.visualBar !== fakeBar)
           return root.fail("visual bar leases or click targets")
+        if (!sharedMonitorService.setAutoWorkspaces(false)
+            || sharedMonitorService.displayManagerAutoWorkspaces
+            || !sharedMonitorService.setAutoWorkspaces(true))
+          return root.fail("auto workspace setting ownership")
+        if (!sharedMonitorService.summonVisiblePanel()
+            || root.summonCount !== 1)
+          return root.fail("visible panel summon")
+        sharedMonitorService.closeVisiblePanels()
+        if (!root.hiddenBarWidget) return root.fail("visible panel close")
 
-        scopedBackend.open()
-        if (scopedBackend.opened)
-          return root.fail("stock display panel stayed open after IPC redirect")
         root.teardownLease = teardownServiceLoader.item.acquireVisualBar(
           teardownLeaseHolder, fakeBar)
         if (!root.teardownLease) return root.fail("teardown lease acquisition")
         teardownServiceLoader.active = false
-        root.fullWidth = first.implicitWidth
-        first.settings = ({ compact: true })
+        sharedMonitorService.setBrightness(72)
         root.phase++
         root.phaseTicks = 0
       } else if (root.phase === 1) {
         if (root.phaseTicks < 3) return
-        if (!first.compact
-            || first.implicitWidth >= root.fullWidth)
-          return root.fail("V1 compact display presentation")
         if (teardownServiceLoader.item !== null)
-          return root.fail("dynamic monitor service did not tear down")
-        root.teardownLease = null
-        const scopedBackend = scopedMonitorService.backend
-        if (root.scopedSummonCount !== 1
-            || root.scopedSummonId !== "shinigami.display-manager"
-            || scopedBackend.opened)
-          return root.fail("scoped legacy monitor IPC redirect")
-        root.scopedVisualLease = scopedMonitorService.acquireVisualBar(root, fakeBar)
-        if (!root.scopedVisualLease || scopedMonitorService.visualBar !== fakeBar
-            || scopedBackend.bar.shell !== visualShell)
-          return root.fail("scoped visual bar lease did not supply host facade")
-        scopedBackend.open()
-        if (root.summonCount !== 1 || root.scopedSummonCount !== 1)
-          return root.fail("visual bar redirect did not use the active bar")
-        if (!scopedMonitorService.releaseVisualBar(root.scopedVisualLease)
-            || scopedMonitorService.visualBar !== null)
-          return root.fail("scoped visual bar lease did not release")
-        root.scopedVisualLease = null
-
-        backend.open()
-        if (root.summonCount !== 2)
-          return root.fail("legacy monitor IPC redirect")
-        first.interactionTarget.wheelMoved(0)
-        first.interactionTarget.wheelMoved(40)
-        first.interactionTarget.wheelMoved(40)
-        if (sharedMonitorService.brightnessPercent !== 64 || backend.setCount !== 0)
-          return root.fail("partial wheel deltas were not accumulated")
-        first.interactionTarget.wheelMoved(40)
-        first.interactionTarget.wheelMoved(240)
-        first.interactionTarget.wheelMoved(-60)
-        if (sharedMonitorService.brightnessPercent !== 74 || backend.setCount !== 2)
-          return root.fail("wheel notch/multi-delta forwarding")
-        first.interactionTarget.wheelMoved(-60)
-        if (sharedMonitorService.brightnessPercent !== 69 || backend.setCount !== 3
-            || backend.osdCount !== 3 || backend.osdValue !== 69)
-          return root.fail("negative wheel delta/OSD forwarding")
-        backend.brightnessAvailable = false
-        first.interactionTarget.wheelMoved(80)
-        backend.brightnessAvailable = true
-        first.interactionTarget.wheelMoved(40)
-        if (sharedMonitorService.brightnessPercent !== 69 || backend.setCount !== 3
-            || backend.osdCount !== 3)
-          return root.fail("unavailable wheel delta leaked after recovery")
-        sharedMonitorService.previewBrightness(71)
-        sharedMonitorService.setScale("1.6")
+          return root.fail("dynamic display service did not tear down")
+        if (sharedMonitorService.brightnessPercent !== 72
+            || api.error !== "" || api.busy || api.loading)
+          return root.fail("native brightness action")
         sharedMonitorService.setTextSize(14)
-        sharedMonitorService.adjustTextSize(1)
-        sharedMonitorService.toggleDisplay("DP-1", true)
-        if (backend.previewCount !== 1 || backend.scaleCount !== 1
-            || backend.textSizeSetCount !== 2 || backend.textSizePx !== 16
-            || backend.toggleCount !== 1 || sharedMonitorService.monitorScale !== "1.6"
-            || sharedMonitorService.enabledDisplayCount !== 1)
-          return root.fail("monitor action forwarding")
-        backend.enabledDisplayCount = 0
-        if (sharedMonitorService.enabledDisplayCount !== 0 || !sharedMonitorService.displayToggleAvailable) return root.fail("legacy declared zero/toggle")
-        backend.enabledDisplayCount = 1
-        const forward = forwardBridge.panel
-        if (!forwardBridge.ready || !forwardBridge.previewBrightness(37)
-            || !forwardBridge.setScale(1.6) || !forwardBridge.setBrightness(42)) return root.fail("forward actions")
-        if (JSON.stringify(forward.calls) !== '[["HDMI-A-1",37],["HDMI-A-1","1.6"],[42]]'
-            || forwardBridge.enabledDisplayCount !== 2 || forwardBridge.displayToggleAvailable
-            || forwardBridge.toggleDisplay("HDMI-A-1", true) || forward.calls.length !== 3) return root.fail("forward shape/arguments")
-        forward.focusedMonitor = ""
-        if (forwardBridge.previewBrightness(59) || forward.calls.length !== 3) return root.fail("forward empty focus")
-
-        first.interactionTarget.triggerPress(Qt.LeftButton)
-        second.open()
         root.phase++
         root.phaseTicks = 0
       } else if (root.phase === 2) {
         if (root.phaseTicks < 3) return
-        if (!first.opened || !second.opened || !first.panelLoaded
-            || !second.panelLoaded || backend.viewLoadCount !== 2
-            || backend.refreshCount !== 2 || fakeBar.activePopout !== second)
-          return root.fail("two-output lazy local panels: first=" + first.opened
-            + " second=" + second.opened + " firstLoaded=" + first.panelLoaded
-            + " secondLoaded=" + second.panelLoaded + " views="
-            + backend.viewLoadCount + " refreshes=" + backend.refreshCount
-            + " activeSecond=" + (fakeBar.activePopout === second))
-        if (backend.opened)
-          return root.fail("hidden official popup remained open")
-
-        backend.brightnessAvailable = false
-        backend.internalMonitor = ""
-        backend.displays = [
-          { name: "DP-1", enabled: true, focused: true }
-        ]
+        if (sharedMonitorService.textSizePx !== 14
+            || sharedMonitorService.textSizeIndex !== 4
+            || api.busy || api.loading)
+          return root.fail("native text-size action")
+        if (!api.stageMonitor("eDP-1", { scale: 1.25 })
+            || !api.previewMonitor("eDP-1") || api.previewMonitor("eDP-1").scale !== 1.25
+            || !api.applyDrafts())
+          return root.fail("display draft staging")
         root.phase++
         root.phaseTicks = 0
       } else if (root.phase === 3) {
-        if (root.phaseTicks < 2) return
-        if (!first.visible || first.brightnessAvailable
-            || first.tooltipText !== "Display Manager · click to configure monitors" || first.implicitWidth <= 0)
-          return root.fail("display controls fallback without backlight")
+        if (root.phaseTicks < 3) return
+        if (!api.rollbackPending || api.rollbackToken === ""
+            || api.busy || api.loading)
+          return root.fail("guarded display preview: pending=" + api.rollbackPending
+            + " token=" + api.rollbackToken + " busy=" + api.busy
+            + " loading=" + api.loading + " error=" + api.error)
+        api.confirmChanges()
+        root.phase++
+        root.phaseTicks = 0
+      } else if (root.phase === 4) {
+        if (root.phaseTicks < 3) return
+        if (api.rollbackPending || api.busy || api.loading
+            || api.error !== "" || sharedMonitorService.monitorScale !== "1.25"
+            || api.hasDrafts)
+          return root.fail("confirmed display draft did not settle")
+        first.open()
+        second.open()
+        root.phase++
+        root.phaseTicks = 0
+      } else if (root.phase === 5) {
+        if (root.phaseTicks < 4) return
+        if (!first.opened || !second.opened || !first.panelLoaded || !second.panelLoaded)
+          return root.fail("one-surface display panels did not load")
+        const names = [
+          "display-v1-title", "display-refresh", "display-v1-close",
+          "display-canvas", "display-monitor-eDP-1", "display-monitor-DP-1",
+          "display-resolution", "display-position-x", "display-position-y",
+          "display-scale", "display-rotation", "display-workspace-1",
+          "display-mirror", "display-enable", "display-disable",
+          "display-brightness", "display-brightness-readout",
+          "display-text-size", "display-workspaces",
+          "display-save",
+        ]
+        for (const name of names) {
+          if (findObject(first.panelItem, name) === null)
+            return root.fail("missing Rise display control: " + name)
+          if (findObject(second.panelItem, name) === null)
+            return root.fail("missing second-output Rise display control: " + name)
+        }
+        const firstRotation = findObject(first.panelItem, "display-rotation")
+        const secondRotation = findObject(second.panelItem, "display-rotation")
+        if (firstRotation.width < 110 || secondRotation.width < 110)
+          return root.fail("display rotation text is clipped: "
+            + firstRotation.width + ", " + secondRotation.width)
+        for (const panelItem of [first.panelItem, second.panelItem]) {
+          const readout = findObject(panelItem, "display-brightness-readout")
+          if (readout.x + readout.width > panelItem.width - 2)
+            return root.fail("display brightness readout overflows: "
+              + readout.x + "+" + readout.width + " > " + panelItem.width)
+        }
+        firstRotation.expanded = true
+        secondRotation.expanded = true
+        if (!first.panelItem.riseContent
+            || first.panelItem.riseContent.expandedSelectCount !== 1
+            || !second.panelItem.riseContent
+            || second.panelItem.riseContent.expandedSelectCount !== 1)
+          return root.fail("expanded Rise selects were not adapted to the panel: "
+            + firstRotation.expanded + "/" + secondRotation.expanded + ", "
+            + (first.panelItem.riseContent
+              ? first.panelItem.riseContent.expandedSelectCount : "no fixture content")
+            + "/" + (second.panelItem.riseContent
+              ? second.panelItem.riseContent.expandedSelectCount : "no fixture content"))
+        firstRotation.expanded = false
+        secondRotation.expanded = false
+        if (first.panelItem.riseContent.expandedSelectCount !== 0
+            || second.panelItem.riseContent.expandedSelectCount !== 0)
+          return root.fail("collapsed Rise selects were not released")
+        const refresh = findObject(first.panelItem, "display-refresh")
+        refresh.clicked()
+        root.phase++
+        root.phaseTicks = 0
+      } else if (root.phase === 6) {
+        if (root.phaseTicks < 3) return
         first.close()
-        secondLoader.active = false
+        root.phase++
+        root.phaseTicks = 0
+      } else if (root.phase === 7) {
+        if (root.phaseTicks < 3) return
+        if (first.panelLoaded)
+          return root.fail("first output-local display panel did not tear down")
+        second.close()
         root.phase++
         root.phaseTicks = 0
       } else {
-        if (first.panelLoaded || root.clickTargets.length !== 1
-            || fakeBar.activePopout !== null
-            || sharedMonitorService._visualBarLeases.length !== 1)
-          return root.fail("local panel teardown")
+        if (root.phaseTicks < 3) return
+        if (second.panelLoaded || root.clickTargets.length !== 2
+            || sharedMonitorService._visualBarLeases.length !== 2
+            || fakeBar.activePopout !== null)
+          return root.fail("second output-local display panel did not tear down")
         firstLoader.active = false
+        secondLoader.active = false
         Qt.callLater(function() {
           if (root.clickTargets.length !== 0
               || sharedMonitorService._visualBarLeases.length !== 0)

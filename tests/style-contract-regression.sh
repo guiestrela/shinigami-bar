@@ -494,7 +494,7 @@ for refresh_action_owner in \
   shinigami.display-manager/BrightnessPanel.qml \
   shinigami.network/NetworkPanel.qml \
   shinigami.update-center/UpdateCenterPanel.qml; do
-  rg -q 'icon: .*"refresh"|\? "sync" : "refresh"' "$refresh_action_owner" \
+  rg -q 'icon: .*"refresh"|\? "sync" : "refresh"|glyph: "\\uE5D5"' "$refresh_action_owner" \
     || fail "$refresh_action_owner lost the shared refresh/rescan icon contract"
 done
 
@@ -601,7 +601,7 @@ for radius_owner in \
   shinigami.audio/AudioPanel.qml \
   shinigami.battery/BatteryPanel.qml \
   shinigami.bluetooth/BluetoothPanel.qml \
-  shinigami.display-manager/BrightnessPanel.qml \
+  shinigami.display-manager/DisplayManagerPanelContent.qml \
   shinigami.center/CalendarPanel.qml \
   shinigami.center/WeatherPanel.qml \
   shinigami.cpu/CpuPanel.qml \

@@ -1,0 +1,542 @@
+#!/usr/bin/env python3
+"""Validated Hyprland display actions and non-destructive monitors.lua writer."""
+import argparse
+import json
+import os
+import re
+import fcntl
+import secrets
+import stat
+import time
+import subprocess
+import sys
+from pathlib import Path
+
+BEGIN = "-- BEGIN SHINIGAMI DISPLAY MANAGER (AUTO-GENERATED)"
+END = "-- END SHINIGAMI DISPLAY MANAGER"
+LEGACY_BEGIN = "-- BEGIN RISE DISPLAY MANAGER (AUTO-GENERATED)"
+LEGACY_END = "-- END RISE DISPLAY MANAGER"
+NAME = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+MODE = re.compile(r"^(?:preferred|[1-9][0-9]{1,4}x[1-9][0-9]{1,4}(?:@[1-9][0-9]{0,2}(?:\.[0-9]{1,3})?)?)$")
+SCALE = re.compile(r"^(?:[1-9](?:\.[0-9]{1,2})?|0\.[1-9][0-9]?)$")
+
+
+def require_name(value, label="monitor"):
+    if not isinstance(value, str) or not NAME.fullmatch(value):
+        raise ValueError(f"Invalid {label} name")
+    return value
+
+
+def monitor_args(args):
+    name = require_name(args.monitor)
+    mode = str(args.mode).removesuffix("Hz")
+    if not MODE.fullmatch(mode):
+        raise ValueError("Invalid mode; expected preferred or WIDTHxHEIGHT[@HZ]")
+    scale = args.scale
+    if not SCALE.fullmatch(scale) or float(scale) > 4:
+        raise ValueError("Invalid scale (expected 0.1–4)")
+    if not 0 <= args.transform <= 7:
+        raise ValueError("Invalid transform (expected 0–7)")
+    if args.mirror != "none":
+        require_name(args.mirror, "mirror target")
+        if args.mirror == name:
+            raise ValueError("A display cannot mirror itself")
+    if not (-32768 <= args.x <= 32767 and -32768 <= args.y <= 32767):
+        raise ValueError("Position outside supported bounds")
+    return name, mode, scale
+
+
+def run(argv, *, capture=False):
+    return subprocess.run(argv, check=True, text=True, capture_output=capture, timeout=10)
+
+
+def quote_lua(value):
+    # Each field is validated before escaping; modes are not output names.
+    if not isinstance(value, str) or not value.isascii() or any(ord(c) < 32 for c in value):
+        raise ValueError("Invalid Lua string")
+    return json.dumps(value)
+
+
+def has_native_per_monitor_workspaces():
+    omarchy_root = Path(os.environ.get("OMARCHY_PATH") or "/usr/share/omarchy")
+    return (omarchy_root / "default/hypr/monitor-workspaces.lua").is_file()
+
+
+def build_block(data, *, native_per_monitor_workspaces=False):
+    if not isinstance(data, dict) or not isinstance(data.get("monitors"), list):
+        raise ValueError("Layout requires a monitors array")
+    monitors = data["monitors"]
+    if not monitors or len(monitors) > 32:
+        raise ValueError("Layout must contain 1–32 monitors")
+    lines = [BEGIN, "-- Managed by Shinigami Display Manager"]
+    seen = set()
+    if any(not isinstance(e, dict) for e in monitors):
+        raise ValueError("Invalid monitor entry")
+    independent = {require_name(e.get("output")) for e in monitors if not e.get("disabled", False) and not e.get("mirror")}
+    if not independent:
+        raise ValueError("Keep at least one independent display enabled")
+    for entry in monitors:
+        if not isinstance(entry, dict):
+            raise ValueError("Invalid monitor entry")
+        name = require_name(entry.get("output"))
+        if name in seen:
+            raise ValueError("Duplicate monitor name")
+        seen.add(name)
+        if not isinstance(entry.get("disabled", False), bool):
+            raise ValueError("Invalid disabled state")
+        if entry.get("disabled", False):
+            lines.append(f"hl.monitor({{ output = {quote_lua(name)}, disabled = true }})")
+            continue
+        mode = entry.get("mode", "preferred")
+        if isinstance(mode, str):
+            mode = mode.removesuffix("Hz")
+        if not isinstance(mode, str) or not MODE.fullmatch(mode):
+            raise ValueError("Invalid monitor mode")
+        position = entry.get("position", "auto")
+        if position != "auto" and (not isinstance(position, str) or not re.fullmatch(r"-?\d{1,5}x-?\d{1,5}", position)):
+            raise ValueError("Invalid monitor position")
+        if position != "auto" and any(not -32768 <= int(c) <= 32767 for c in position.split("x")):
+            raise ValueError("Position outside supported bounds")
+        scale = entry.get("scale", 1)
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not 0.1 <= scale <= 4:
+            raise ValueError("Invalid monitor scale")
+        transform = entry.get("transform", 0)
+        if isinstance(transform, bool) or not isinstance(transform, int) or not 0 <= transform <= 7:
+            raise ValueError("Invalid monitor transform")
+        mirror = entry.get("mirror")
+        if mirror and (require_name(mirror, "mirror target") not in independent or mirror == name):
+            raise ValueError("Mirror target must be another independent active display")
+        lines.extend([f"hl.monitor({{ output = {quote_lua(name)}, disabled = false, mode = {quote_lua(mode)}, position = {quote_lua(position)}, scale = {scale:g}, transform = {transform}," + (f" mirror = {quote_lua(require_name(mirror, 'mirror target'))}," if mirror else "") + " })"])
+    lines.extend(['hl.monitor({ output = "", disabled = false, mode = "preferred", position = "auto", scale = 1 })'])
+    if data.get("manageWorkspaces") is True and not native_per_monitor_workspaces:
+        workspaces = data.get("workspaces", [])
+        if not isinstance(workspaces, list) or len(workspaces) > 10:
+            raise ValueError("Invalid workspace assignments")
+        seen_workspaces = set()
+        for ws in workspaces:
+            if not isinstance(ws, dict) or isinstance(ws.get("workspace"), bool) or not isinstance(ws.get("workspace"), int) or not 1 <= ws["workspace"] <= 10 or ws["workspace"] in seen_workspaces:
+                raise ValueError("Invalid workspace assignment")
+            seen_workspaces.add(ws["workspace"])
+            target = require_name(ws.get("monitor"))
+            if target not in independent:
+                raise ValueError("Workspace references unknown monitor")
+        if workspaces:
+            defaults = set()
+            for ws in workspaces:
+                target = require_name(ws["monitor"])
+                is_default = target not in defaults
+                lines.append(f'hl.workspace_rule({{ workspace = "{ws["workspace"]}", monitor = {quote_lua(target)}, default = {str(is_default).lower()}, persistent = true }})')
+                defaults.add(ws["monitor"])
+    lines.append(END)
+    return "\n".join(lines)
+
+
+def read_existing(directory, name):
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    except FileNotFoundError:
+        return None
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 1048576:
+            raise ValueError("Configuration must be a bounded regular file")
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            value = stream.read(1048577)
+        if len(value) > 1048576:
+            raise ValueError("Configuration too large")
+        return value
+    finally:
+        os.close(fd)
+
+
+def atomic_write(directory, name, value):
+    temporary = ".shinigami-display-" + secrets.token_hex(12)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+    try:
+        with os.fdopen(fd, "wb", closefd=False) as stream:
+            stream.write(value); stream.flush(); os.fsync(fd)
+        os.rename(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+    finally:
+        os.close(fd)
+        try:
+            os.unlink(temporary, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def config_directory():
+    directory = os.open(Path.home(), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for name in (".config", "hypr"):
+            try:
+                os.mkdir(name, 0o700, dir_fd=directory)
+            except FileExistsError:
+                pass
+            child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory); directory = child
+        return directory
+    except BaseException:
+        os.close(directory); raise
+
+
+def save_layout(data, *, reload=False):
+    block = build_block(data, native_per_monitor_workspaces=has_native_per_monitor_workspaces())
+    if reload:
+        values = normalize_monitors(json.loads(run(["hyprctl", "monitors", "all", "-j"], capture=True).stdout))
+        if not isinstance(values, list) or any(not isinstance(m, dict) for m in values):
+            raise ValueError("Invalid connected monitor state")
+        connected = {require_name(m.get("name")) for m in values}
+        planned = {entry["output"] for entry in data["monitors"] if not entry.get("disabled", False) and not entry.get("mirror")}
+        if not (planned & connected):
+            raise ValueError("Keep at least one connected independent display enabled")
+        if any(entry["output"] not in connected for entry in data["monitors"]):
+            raise ValueError("Layout contains a disconnected display; refresh first")
+    directory = config_directory()
+    lock = None
+    try:
+        lock = os.open(".shinigami-display-manager.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory)
+        if not stat.S_ISREG(os.fstat(lock).st_mode):
+            raise ValueError("Invalid save lock")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        original = read_existing(directory, "monitors.lua")
+        read_existing(directory, "monitors.lua.bak")
+        old = original.decode("utf-8") if original is not None else ""
+        managed = []
+        for marker_begin, marker_end in ((BEGIN, END), (LEGACY_BEGIN, LEGACY_END)):
+            if marker_begin in old or marker_end in old:
+                if (old.count(marker_begin) != 1 or old.count(marker_end) != 1
+                        or old.index(marker_end) < old.index(marker_begin)):
+                    raise ValueError("Existing managed markers are ambiguous; file was not changed")
+                managed.append((old.index(marker_begin), old.index(marker_end) + len(marker_end)))
+        if len(managed) > 1:
+            raise ValueError("Multiple managed display blocks are ambiguous; file was not changed")
+        if managed:
+            start, finish = managed[0]
+            new = old[:start] + block + old[finish:]
+        else:
+            new = (old.rstrip() + "\n\n" if old else "") + block + "\n"
+        encoded = new.encode()
+        if len(encoded) > 1048576:
+            raise ValueError("Resulting configuration too large")
+        if read_existing(directory, "monitors.lua") != original:
+            raise ValueError("Config changed during save; refresh first")
+        if original is not None:
+            atomic_write(directory, "monitors.lua.shinigami-backup-" + str(time.time_ns()), original)
+            atomic_write(directory, "monitors.lua.bak", original)
+        atomic_write(directory, "monitors.lua", encoded)
+        if reload:
+            try:
+                run(["hyprctl", "reload"])
+            except (OSError, subprocess.SubprocessError) as error:
+                if read_existing(directory, "monitors.lua") != encoded:
+                    raise ValueError("Reload failed and file changed externally; use versioned backup") from error
+                if original is None:
+                    os.unlink("monitors.lua", dir_fd=directory)
+                else:
+                    atomic_write(directory, "monitors.lua", original)
+                raise ValueError("Reload failed; prior file restored. Check runtime state.") from error
+    finally:
+        if lock is not None:
+            os.close(lock)
+        os.close(directory)
+
+
+def normalize_monitors(values):
+    if not isinstance(values, list) or not 1 <= len(values) <= 32 or any(not isinstance(m, dict) for m in values):
+        raise ValueError("Invalid monitor state")
+    copies = [dict(m) for m in values]
+    names = {require_name(m.get("name")) for m in copies}
+    if len(names) != len(copies):
+        raise ValueError("Duplicate monitor name")
+    ids = {}
+    for m in copies:
+        if type(m.get("id")) is int:
+            key = str(m['id'])
+            if key in ids:
+                raise ValueError("Duplicate monitor id")
+            ids[key] = m['name']
+    for m in copies:
+        target = m.get('mirrorOf')
+        if target in (None, '', 'none'):
+            m['mirrorOf'] = 'none'
+        elif isinstance(target, str) and target in names:
+            m['mirrorOf'] = target
+        elif type(target) in (int, str) and re.fullmatch(r'[0-9]{1,10}', str(target)) and str(target) in ids:
+            m['mirrorOf'] = ids[str(target)]
+        else:
+            raise ValueError("Unknown mirror source in compositor state")
+        if m['mirrorOf'] == m['name']:
+            raise ValueError("A display cannot mirror itself")
+    return copies
+
+
+def check_live_action(name, mirror="none", *, disabling=False):
+    values = normalize_monitors(json.loads(run(["hyprctl", "monitors", "all", "-j"], capture=True).stdout))
+    if not isinstance(values, list) or len(values) > 32 or any(not isinstance(m, dict) for m in values):
+        raise ValueError("Invalid monitor state")
+    by_name = {require_name(m.get("name")): m for m in values}
+    if name not in by_name:
+        raise ValueError("Output is no longer connected; refresh first")
+    independent = {n for n,m in by_name.items() if not m.get("disabled",False) and m.get("mirrorOf","none") in (None,"","none")}
+    if disabling:
+        if not (independent - {name}):
+            raise ValueError("Keep at least one independent display enabled")
+        if any(not m.get("disabled",False) and m.get("mirrorOf") == name for m in values):
+            raise ValueError("Detach mirrors before disabling their source")
+    elif mirror != "none":
+        if any(not m.get("disabled", False) and m.get("mirrorOf") == name for m in values):
+            raise ValueError("Detach existing mirrors before mirroring their source")
+        if mirror == name or mirror not in independent:
+            raise ValueError("Choose another independent active mirror target")
+
+
+def matches_preview_baseline(got, args):
+    if bool(got.get('disabled', False)) != (args.action == 'disable'):
+        return False
+    if args.action == 'disable':
+        return True
+    if (got.get('mirrorOf') or 'none') != args.mirror:
+        return False
+    if any(got.get(key, 0) != value for key, value in [('x', args.x), ('y', args.y), ('transform', args.transform)]):
+        return False
+    if abs(float(got.get('scale', 0)) - float(args.scale)) > .00001:
+        return False
+    if args.mode == 'preferred':
+        return False  # An unchanged baseline must describe an exact mode.
+    geometry, _, rate = args.mode.partition('@')
+    width, height = map(int, geometry.split('x'))
+    return got.get('width') == width and got.get('height') == height and (not rate or abs(float(got.get('refreshRate', 0)) - float(rate)) < .05)
+
+
+def preview_command(payload, live, *, restoring=False):
+    """Validate a complete preview, emit only changed outputs; never save/reload."""
+    if not isinstance(payload, dict) or set(payload) - {'monitors', 'changed'}:
+        raise ValueError('Invalid preview payload')
+    entries = payload.get('monitors')
+    changed = payload.get('changed')
+    if not isinstance(changed, list) or not 1 <= len(changed) <= 32:
+        raise ValueError('Invalid changed output list')
+    changed = [require_name(name) for name in changed]
+    if len(set(changed)) != len(changed):
+        raise ValueError('Duplicate changed output')
+    # Reuse strict layout validation, but do not execute its wildcard/workspaces.
+    build_block({'monitors': entries})
+    by_name = {require_name(m['name']): m for m in live}
+    if {entry['output'] for entry in entries} != set(by_name) or not set(changed) <= set(by_name):
+        raise ValueError('Connected displays changed; refresh before applying')
+    commands, requested, rectangles = [], [], []
+    for entry in sorted(entries, key=lambda e: (e.get('disabled', False), bool(e.get('mirror')))):
+        name = entry['output']
+        if entry.get('disabled', False):
+            args = parser_for_action().parse_args(['--action', 'disable', '--monitor', name])
+            code = f'hl.monitor({{ output = {quote_lua(name)}, disabled = true }})'
+        else:
+            position = entry.get('position', '')
+            if not isinstance(position, str) or position == 'auto':
+                raise ValueError('Preview requires an explicit position')
+            x, y = map(int, position.split('x'))
+            mode = str(entry.get('mode', 'preferred')).removesuffix('Hz')
+            scale = entry.get('scale', 1)
+            transform = entry.get('transform', 0)
+            mirror = entry.get('mirror') or 'none'
+            args = parser_for_action().parse_args(['--action', 'monitor', '--monitor', name,
+                '--mode', mode, '--x', str(x), '--y', str(y), '--scale', f'{scale:g}',
+                '--transform', str(transform), '--mirror', mirror])
+            monitor_args(args)
+            if not entry.get('mirror'):
+                if mode == 'preferred':
+                    width, height = by_name[name].get('width', 0), by_name[name].get('height', 0)
+                else:
+                    width, height = map(int, mode.split('@')[0].split('x'))
+                if not isinstance(width, int) or not isinstance(height, int) or width <= 0 or height <= 0:
+                    raise ValueError('Unknown preview dimensions')
+                w, h = (height, width) if transform % 2 else (width, height)
+                rectangles.append((x, y, w / scale, h / scale))
+            code = (f'hl.monitor({{ output = {quote_lua(name)}, disabled = false, mode = {quote_lua(mode)}, '
+                    f'position = {quote_lua(position)}, scale = {scale:g}, transform = {transform}, '
+                    f'mirror = {quote_lua("" if mirror == "none" else mirror)} }})')
+        if name not in changed and not restoring and not matches_preview_baseline(by_name[name], args):
+            raise ValueError('Unchanged output baseline changed; refresh before applying')
+        if name in changed:
+            commands.append(code)
+            requested.append(args)
+    for i, (x, y, w, h) in enumerate(rectangles):
+        for ox, oy, ow, oh in rectangles[i+1:]:
+            if not restoring and x < ox + ow and x + w > ox and y < oy + oh and y + h > oy:
+                raise ValueError('Displays cannot overlap')
+    return '\n'.join(commands), requested
+
+
+def layout_snapshot(values):
+    return [{'output': m['name'], 'mode': f"{m['width']}x{m['height']}@{float(m['refreshRate']):.3f}",
+        'position': f"{m['x']}x{m['y']}", 'scale': m['scale'], 'transform': m.get('transform', 0),
+        'disabled': bool(m.get('disabled', False)), 'mirror': '' if m.get('mirrorOf') in (None, '', 'none') else m['mirrorOf']} for m in values]
+
+
+def workspace_state():
+    rules = json.loads(run(['hyprctl', 'workspacerules', '-j'], capture=True).stdout)
+    spaces = json.loads(run(['hyprctl', 'workspaces', '-j'], capture=True).stdout)
+    if not isinstance(rules, list) or len(rules) > 1024 or not isinstance(spaces, list) or len(spaces) > 256:
+        raise ValueError('Invalid workspace state')
+    bindings, live_bindings, overrides = {}, {}, {}
+    for entry in spaces:
+        number, target = entry.get('id'), entry.get('monitor')
+        if type(number) is int and 1 <= number <= 10 and isinstance(target, str) and NAME.fullmatch(target):
+            key = str(number)
+            bindings[key] = target
+            live_bindings[key] = target
+    for rule in rules:
+        number, target = str(rule.get('workspaceString', '')), rule.get('monitor')
+        if number.isdigit() and 1 <= int(number) <= 10 and isinstance(target, str) and NAME.fullmatch(target):
+            bindings[str(int(number))] = target
+            overrides[str(int(number))] = target
+    return {'bindings': bindings, 'liveBindings': live_bindings, 'overrides': overrides, 'rules': rules}
+
+
+def workspace_command(entries, monitors, rules):
+    if not isinstance(entries, list) or not 1 <= len(entries) <= 10:
+        raise ValueError('Choose 1–10 workspace assignments')
+    active = {m['name'] for m in monitors if not m.get('disabled', False) and m.get('mirrorOf', 'none') in (None, '', 'none')}
+    seen, lines = set(), []
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {'workspace', 'monitor'}:
+            raise ValueError('Invalid workspace assignment')
+        number, target = entry['workspace'], require_name(entry['monitor'])
+        if type(number) is not int or not 1 <= number <= 10 or number in seen or target not in active:
+            raise ValueError('Workspace needs a unique ID 1–10 and an active independent monitor')
+        seen.add(number)
+        original = next((r for r in rules if str(r.get('workspaceString', '')) == str(number)), {})
+        if set(original) - {'workspaceString', 'monitor', 'enabled', 'default', 'persistent'} or original.get('enabled') is False:
+            raise ValueError('This workspace has custom rules; preserve them with a manual configuration')
+        default = ', default = ' + ('true' if original['default'] else 'false') if type(original.get('default')) is bool else ''
+        lines.append(f'hl.workspace_rule({{ workspace = "{number}", monitor = {quote_lua(target)}{default}, persistent = true }})')
+    return '\n'.join(lines)
+
+
+def read_brightness(name):
+    text = run(["omarchy-brightness-display", "--no-osd", "--monitor", require_name(name)], capture=True).stdout.strip()
+    if not re.fullmatch(r"[0-9]{1,3}", text) or not 0 <= int(text) <= 100:
+        raise ValueError("Could not read brightness for " + name)
+    return int(text)
+
+
+def parser_for_action():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--action", required=True, choices=["monitors", "monitor", "disable", "preview", "save", "brightness", "brightness-state", "text-size", "workspace-state", "workspaces"])
+    parser.add_argument("--monitor")
+    parser.add_argument("--mode", default="preferred")
+    parser.add_argument("--x", type=int, default=0)
+    parser.add_argument("--y", type=int, default=0)
+    parser.add_argument("--scale", default="1")
+    parser.add_argument("--transform", type=int, default=0)
+    parser.add_argument("--mirror", default="none")
+    parser.add_argument("--percent", type=int)
+    parser.add_argument("--size", type=int)
+    parser.add_argument("--payload")
+    return parser
+
+
+def main():
+    args = parser_for_action().parse_args()
+    try:
+        if args.action == "monitors":
+            result = run(["hyprctl", "monitors", "all", "-j"], capture=True)
+            monitors = normalize_monitors(json.loads(result.stdout))
+            if not isinstance(monitors, list) or len(monitors) > 32:
+                raise ValueError("Invalid monitor response")
+            for monitor in monitors:
+                if not isinstance(monitor, dict):
+                    raise ValueError("Invalid monitor response entry")
+                require_name(monitor.get("name"))
+                if "availableModes" in monitor and not isinstance(monitor["availableModes"], list):
+                    raise ValueError("Invalid available modes")
+            print(json.dumps(monitors, separators=(",", ":")))
+        elif args.action == "workspace-state":
+            state = workspace_state()
+            print(json.dumps({'bindings': state['bindings'], 'overrides': state['overrides']}))
+        elif args.action == "workspaces":
+            if not args.payload or len(args.payload) > 4096:
+                raise ValueError('Invalid workspace payload size')
+            if has_native_per_monitor_workspaces():
+                print('Omarchy manages workspaces 1–10 independently on each monitor; no global workspace rules were written')
+                return 0
+            entries = json.loads(args.payload)
+            state = workspace_state()
+            monitors = normalize_monitors(json.loads(run(['hyprctl', 'monitors', 'all', '-j'], capture=True).stdout))
+            code = workspace_command(entries, monitors, state['rules'])
+            result = run(['hyprctl', 'eval', code], capture=True)
+            if result.stdout.strip() != 'ok':
+                raise ValueError('Workspace assignment rejected')
+            for entry in entries:
+                key = str(entry['workspace'])
+                current_monitor = state['liveBindings'].get(key)
+                if current_monitor and current_monitor != entry['monitor']:
+                    moved = run(['hyprctl', 'dispatch', 'moveworkspacetomonitor',
+                                 f"{entry['workspace']} {entry['monitor']}"], capture=True)
+                    if moved.stdout.strip() != 'ok':
+                        raise ValueError(f"Workspace {entry['workspace']} could not be moved to {entry['monitor']}")
+            after = workspace_state()
+            if any(after['overrides'].get(str(entry['workspace'])) != entry['monitor']
+                   or (str(entry['workspace']) in state['liveBindings']
+                       and after['liveBindings'].get(str(entry['workspace'])) != entry['monitor'])
+                   for entry in entries):
+                raise ValueError('Workspace assignment readback did not match')
+            print('Workspace assignments applied and verified')
+        elif args.action == "preview":
+            if not args.payload or len(args.payload) > 32768:
+                raise ValueError("Invalid preview size")
+            live = normalize_monitors(json.loads(run(["hyprctl", "monitors", "all", "-j"], capture=True).stdout))
+            code, _ = preview_command(json.loads(args.payload), live)
+            result = run(["hyprctl", "eval", code], capture=True)
+            if str(result.stdout or "").strip() != "ok":
+                raise ValueError("Hyprland rejected display preview")
+            print("Display preview applied")
+        elif args.action in ("monitor", "disable"):
+            if args.action == "disable":
+                name = require_name(args.monitor)
+                check_live_action(name, disabling=True)
+                code = f"hl.monitor({{ output = {quote_lua(name)}, disabled = true }})"
+            else:
+                name, mode, scale = monitor_args(args)
+                check_live_action(name, args.mirror)
+                pos = f"{args.x}x{args.y}"
+                code = (f"hl.monitor({{ output = {quote_lua(name)}, disabled = false, mode = {quote_lua(mode)}, "
+                        f"position = {quote_lua(pos)}, scale = {scale}, transform = {args.transform}"
+                        + (f", mirror = {quote_lua(require_name(args.mirror, 'mirror target'))}" if args.mirror != "none" else ", mirror = \"\"")
+                        + " })")
+            result = run(["hyprctl", "eval", code], capture=True)
+            if str(result.stdout or "").strip() != "ok":
+                raise ValueError("Hyprland rejected display action: " + str(result.stdout or "empty response").strip()[:2048])
+            print("Display action applied")
+        elif args.action == "save":
+            if not args.payload or len(args.payload) > 65536:
+                raise ValueError("Missing or oversized layout payload")
+            data = json.loads(args.payload)
+            save_layout(data, reload=True)
+            print("Layout saved, backup created when a prior file existed, and Hyprland reloaded")
+        elif args.action == "brightness-state":
+            name = require_name(args.monitor)
+            print(json.dumps({"monitor": name, "percent": read_brightness(name)}))
+        elif args.action == "brightness":
+            require_name(args.monitor)
+            if args.percent is None or not 1 <= args.percent <= 100:
+                raise ValueError("Brightness must be 1–100")
+            run(["omarchy-brightness-display", "--no-osd", "--monitor", args.monitor, f"{args.percent}%"])
+            actual = read_brightness(args.monitor)
+            if actual != args.percent:
+                raise ValueError(f"Brightness readback for {args.monitor}: requested {args.percent}%, got {actual}%")
+            print("Brightness updated and verified")
+        elif args.action == "text-size":
+            if args.size not in (9, 10, 11, 12, 14, 16, 20):
+                raise ValueError("Text size must match an offered preset")
+            run(["omarchy-display-text-size", str(args.size)])
+            print("Text size updated")
+    except (ValueError, OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+        print(f"Display Manager: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
