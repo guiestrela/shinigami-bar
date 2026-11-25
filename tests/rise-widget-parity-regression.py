@@ -74,6 +74,15 @@ def check_wallpaper() -> None:
         "wallpaper panel labels are not Wallpapers",
     )
     require(
+        "color: root.barTokens ? root.barTokens.panelBackground" in host
+        and "Commons.Border.flat(root.barTokens.panelBorder, root.barTokens.panelBorderWidth)" in host
+        and "radius: root.barTokens ? root.barTokens.tooltipRadius : Style.cornerRadius" in host
+        and "readonly property color text: root.panelInk" in host
+        and "readonly property color dim: root.panelMuted" in host
+        and "RectangularShadow {" in host,
+        "wallpaper hover preview does not follow the Shinigami bar surface style",
+    )
+    require(
         "openWallpaperSettings" not in host
         and "host.picker" not in host
         and "wallpaperomarchymanager" not in host.lower(),

@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import QtQuick.Dialogs as Dialogs
 import Quickshell
 import Quickshell.Io
@@ -1107,18 +1108,34 @@ Panel {
       }
     }
 
+    RectangularShadow {
+      anchors.fill: previewCard
+      visible: !!root.barTokens && root.barTokens.shellStyle === "shinigami"
+        && root.barTokens.shadowEnabled === true
+      radius: previewCard.radius
+      blur: 8
+      spread: 0
+      offset: Qt.vector2d(0, preview.barPosition === "bottom" ? -1 : 1)
+      color: root.barTokens && root.barTokens.pillShadow !== undefined
+        ? root.barTokens.pillShadow : "transparent"
+      z: -1
+    }
+
     BorderSurface {
       id: previewCard
 
-      readonly property color text: Commons.Color.tooltip.text
-      readonly property color dim: Qt.darker(Commons.Color.tooltip.text, 1.5)
+      readonly property color text: root.panelInk
+      readonly property color dim: root.panelMuted
 
       implicitWidth: previewColumn.width + contentLeftInset + contentRightInset
       implicitHeight: previewColumn.implicitHeight + contentTopInset + contentBottomInset
       padding: Style.space(10)
-      color: Commons.Color.tooltip.background
-      borderSpec: Border.surfaceSpec("tooltip", "border", Commons.Color.tooltip.border, 1)
-      radius: Style.cornerRadius
+      color: root.barTokens ? root.barTokens.panelBackground
+        : Commons.Color.tooltip.background
+      borderSpec: root.barTokens
+        ? Commons.Border.flat(root.barTokens.panelBorder, root.barTokens.panelBorderWidth)
+        : Border.surfaceSpec("tooltip", "border", Commons.Color.tooltip.border, 1)
+      radius: root.barTokens ? root.barTokens.tooltipRadius : Style.cornerRadius
 
       MouseArea {
         id: previewMouse
