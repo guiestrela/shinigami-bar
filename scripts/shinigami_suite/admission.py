@@ -426,7 +426,9 @@ def _validate_identity_tuple(
         )
 
 
-def _validate_activation(state: dict[str, Any], suite: Suite) -> None:
+def _validate_activation(
+    state: dict[str, Any], suite: Suite, identities: list[dict[str, Any]]
+) -> None:
     activation = state.get("activation")
     if not isinstance(activation, dict) or set(activation) != ACTIVATION_KEYS:
         unknown = sorted(set(activation or {}) - ACTIVATION_KEYS) \
@@ -442,17 +444,9 @@ def _validate_activation(state: dict[str, Any], suite: Suite) -> None:
     continuity = sorted(
         {"shinigami.control-center", "shinigami.state"}
     )
-    if (
-        state.get("activeBar") != profile.active_bar
-        or activation.get("activeBar") != profile.active_bar
-        or activation.get("enableServices") != list(profile.enable_services)
-        or activation.get("continuityPlugins") != continuity
-        or not isinstance(activation.get("configuredBar"), str)
-        or not PLUGIN_ID_PATTERN.fullmatch(activation["configuredBar"])
-    ):
-        raise AdmissionError(
-            "unknown activation ownership metadata; no recovery or mutation was attempted"
-        )
+    archived_continuity = sorted(
+        {"hancore.shibumi.control-center", "hancore.shibumi.state"}
+    )
     mode = activation.get("mode")
     policy = activation.get("layoutPolicy")
     layout = activation.get("layout")
@@ -477,6 +471,55 @@ def _validate_activation(state: dict[str, Any], suite: Suite) -> None:
             )
         ):
             raise AdmissionError("activation layout is malformed or unbounded")
+
+    installed = set(state.get("plugins") or ())
+    archived_install = any(
+        set(identity.get("pluginIds") or ()) == installed
+        and all(
+            str(plugin_id).startswith("hancore.shibumi.")
+            for plugin_id in identity.get("pluginIds") or ()
+        )
+        for identity in identities
+    )
+    if archived_install:
+        active_bar = state.get("activeBar")
+        configured_bar = activation.get("configuredBar")
+        enable_services = activation.get("enableServices")
+        if (
+            active_bar not in installed
+            or activation.get("activeBar") != active_bar
+            or not isinstance(configured_bar, str)
+            or not PLUGIN_ID_PATTERN.fullmatch(configured_bar)
+            or configured_bar not in installed
+            or not isinstance(enable_services, list)
+            or not set(enable_services) <= installed
+            or activation.get("continuityPlugins") not in (
+                continuity, archived_continuity
+            )
+            or any(
+                item not in installed
+                for values in layout.values()
+                for item in values
+            )
+            or (mode == "managed" and configured_bar != active_bar)
+        ):
+            raise AdmissionError(
+                "unknown archived activation ownership metadata; "
+                "no recovery or mutation was attempted"
+            )
+        return
+
+    if (
+        state.get("activeBar") != profile.active_bar
+        or activation.get("activeBar") != profile.active_bar
+        or activation.get("enableServices") != list(profile.enable_services)
+        or activation.get("continuityPlugins") != continuity
+        or not isinstance(activation.get("configuredBar"), str)
+        or not PLUGIN_ID_PATTERN.fullmatch(activation["configuredBar"])
+    ):
+        raise AdmissionError(
+            "unknown activation ownership metadata; no recovery or mutation was attempted"
+        )
     if mode == "managed" and (
         activation["configuredBar"] != profile.active_bar
         or layout != {
@@ -594,7 +637,7 @@ def classify_install_state(
         or not re.fullmatch(r"[0-9a-f]{40}(?:-dirty)?", revision)
     ):
         raise AdmissionError("checkout installation authority metadata is inconsistent")
-    _validate_activation(state, suite)
+    _validate_activation(state, suite, identities)
     _validate_identity_tuple(state, suite, identities)
 
     matches = [item for item in identities if _identity_matches(state, item)]

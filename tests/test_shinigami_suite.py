@@ -403,7 +403,7 @@ class FakeOmarchyRuntime(OmarchyRuntime):
         active_bar = str(bar.get("id") or "omarchy.bar")
         actual_namespace = (
             "shinigami-bar"
-            if active_bar == "shinigami.bar"
+            if active_bar in {"shinigami.bar", "hancore.shibumi.bar"}
             else "omarchy-bar"
         )
         if expected_namespace != actual_namespace:
@@ -413,14 +413,17 @@ class FakeOmarchyRuntime(OmarchyRuntime):
             )
 
     def payload_ready(self, payload_digest: str) -> bool:
-        target = self.paths.plugin_dir / "shinigami.state"
-        try:
-            marker = json.loads(
-                (target / ".shinigami-managed.json").read_text(encoding="utf-8")
-            )
-        except (OSError, json.JSONDecodeError):
-            return False
-        return marker.get("suitePayloadDigest") == payload_digest
+        for plugin_id in ("shinigami.state", "hancore.shibumi.state"):
+            target = self.paths.plugin_dir / plugin_id
+            try:
+                marker = json.loads(
+                    (target / ".shinigami-managed.json").read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                continue
+            if marker.get("suitePayloadDigest") == payload_digest:
+                return True
+        return False
 
     def verify_deactivation(
         self,
@@ -1273,7 +1276,7 @@ class SuiteLifecycleTests(unittest.TestCase):
         )
         (self.source / "PACKAGE-METADATA.json").unlink()
         published.revision = Mock(return_value=PUBLISHED_BETA152_REVISION)
-        identity = next(item for item in supported_install_identities(self.suite)
+        identity = next(item for item in supported_install_identities(published)
                         if item["id"] == "public-beta.15.2")
         health_digest = runpy.run_path(str(
             REPO_ROOT / "shinigami.control-center/manager/shinigami-health"
@@ -1301,7 +1304,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             command_install(self.args(), published, self.paths, self.runtime), 0
         )
         self.assertEqual(
-            preflight_lifecycle_state(self.paths, self.suite), "public-beta.15.2"
+            preflight_lifecycle_state(self.paths, published), "public-beta.15.2"
         )
         (spec.source / "manifest.json").write_bytes((spec.source / "manifest.json").read_bytes() + b"\n")
         self.assertNotEqual(health_digest(spec.source), digests[-1])
@@ -1958,6 +1961,10 @@ class SuiteLifecycleTests(unittest.TestCase):
             json.dumps(suite_contract, indent=2) + "\n", encoding="utf-8"
         )
         package_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        # Historical source metadata used the retired package name. Lifecycle
+        # authority is expressed through the current package command, so the
+        # projected package fixture must use its authoritative name.
+        package_metadata["packageName"] = "shinigami-shell"
         package_metadata["version"] = version
         metadata_path.write_text(
             json.dumps(package_metadata, indent=2) + "\n", encoding="utf-8"

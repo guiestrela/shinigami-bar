@@ -81,6 +81,39 @@ CONTINUITY_PLUGIN_IDS = {
     "shinigami.state",
 }
 PICKER_PLUGIN_ID = "shinigami.quick-access"
+ARCHIVED_PICKER_PLUGIN_ID = "hancore.shibumi.quick-access"
+
+
+def picker_plugin_id(suite: Suite) -> str | None:
+    """Return the picker ID declared by the active or archived suite."""
+    if PICKER_PLUGIN_ID in suite.plugins:
+        return PICKER_PLUGIN_ID
+    if ARCHIVED_PICKER_PLUGIN_ID in suite.plugins:
+        return ARCHIVED_PICKER_PLUGIN_ID
+    return None
+
+
+def profile_installs_picker(suite: Suite, plugin_ids: object) -> bool:
+    picker = picker_plugin_id(suite)
+    return (
+        picker is not None
+        and isinstance(plugin_ids, (list, tuple, set))
+        and picker in plugin_ids
+    )
+
+
+def archived_plugin_id(plugin_id: str) -> str:
+    return plugin_id.replace("shinigami.", "hancore.shibumi.", 1)
+
+
+def archived_plugin_aliases(suite: Suite) -> dict[str, str]:
+    current = set(suite.plugins) | set(suite.retired_plugins)
+    return {archived_plugin_id(plugin_id): plugin_id for plugin_id in current}
+
+
+def known_install_plugin_ids(suite: Suite) -> set[str]:
+    current = set(suite.plugins) | set(suite.retired_plugins)
+    return current | set(archived_plugin_aliases(suite))
 
 
 def repository_root() -> Path:
@@ -161,7 +194,7 @@ def load_install_state(paths: RuntimePaths, suite: Suite) -> dict[str, Any]:
     ):
         raise CliError(f"invalid Shinigami install state: {path}")
     plugin_ids = state["plugins"]
-    known_or_retired = set(suite.plugins) | set(suite.retired_plugins)
+    known_or_retired = known_install_plugin_ids(suite)
     if any(
         not isinstance(plugin_id, str) or plugin_id not in known_or_retired
         for plugin_id in plugin_ids
@@ -667,7 +700,7 @@ def command_install(
         transaction.write_config(encode_config(desired))
         runtime.restart_shell()
         transaction.mark_shell_started()
-        if PICKER_PLUGIN_ID in profile.install:
+        if profile_installs_picker(suite, profile.install):
             desired_state["menuExtension"] = install_picker_menu_extension(
                 transaction, runtime
             )
@@ -785,7 +818,7 @@ def command_migrate(
         transaction.write_config(encode_config(desired))
         runtime.restart_shell()
         transaction.mark_shell_started()
-        if PICKER_PLUGIN_ID in profile.install:
+        if profile_installs_picker(suite, profile.install):
             desired_state["menuExtension"] = install_picker_menu_extension(
                 transaction, runtime
             )
@@ -833,8 +866,22 @@ def command_update(
     current, _ = read_config(paths.config_file, paths.defaults_file)
     defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
     external = external_activation(state, current)
-    retired_installed = set(state["plugins"]) & set(suite.retired_plugins)
-    current_installed = set(state["plugins"]) - retired_installed
+    aliases = archived_plugin_aliases(suite)
+    installed_ids = set(state["plugins"])
+    archived_state = any(plugin_id in aliases for plugin_id in installed_ids)
+    retired_live_ids = {
+        plugin_id
+        for plugin_id in installed_ids
+        if aliases.get(plugin_id, plugin_id) in suite.retired_plugins
+    }
+    retired_config_ids = (
+        set(suite.retired_plugins)
+        | retired_live_ids
+        | (installed_ids & set(aliases))
+    )
+    # Archived roots remain the previous IDs for config reconciliation: every
+    # current ID is therefore introduced and written under its new namespace.
+    current_installed = installed_ids - retired_live_ids
 
     def storage_config(config: dict[str, Any]) -> dict[str, Any]:
         return (
@@ -864,13 +911,13 @@ def command_update(
                 ),
                 profile,
             )
-        ), suite.retired_plugins)
+        ), retired_config_ids)
 
     current = storage_config(current)
     drift = (
         external_activation_drift(current, suite, profile_id)
         if external
-        else activation_drift(
+        else [] if archived_state else activation_drift(
             current,
             suite,
             profile_id,
@@ -888,10 +935,10 @@ def command_update(
     preflight_replacements(
         paths.plugin_dir, specs, adoptable_plugin_ids
     )
-    preflight_removal_ids(paths.plugin_dir, retired_installed)
+    preflight_removal_ids(paths.plugin_dir, retired_live_ids)
     print_plan("Update installed Shinigami plugins", specs, paths)
-    if retired_installed:
-        print("  retire:           " + ", ".join(sorted(retired_installed)))
+    if retired_live_ids:
+        print("  retire:           " + ", ".join(sorted(retired_live_ids)))
     if args.dry_run:
         print("Dry run complete; no files changed.")
         return 0
@@ -929,11 +976,11 @@ def command_update(
             previous_bar=previous_bar_for_state(state, defaults, suite),
         )
         transaction.expose()
-        transaction.stage_removal_ids(retired_installed)
+        transaction.stage_removal_ids(retired_live_ids)
         transaction.write_config(encode_config(desired))
         runtime.restart_shell()
         transaction.mark_shell_started()
-        if PICKER_PLUGIN_ID in plugin_ids:
+        if profile_installs_picker(suite, plugin_ids):
             desired_state["menuExtension"] = install_picker_menu_extension(
                 transaction, runtime, state
             )
@@ -970,8 +1017,22 @@ def command_repair(
     current, _ = read_config(paths.config_file, paths.defaults_file)
     defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
     external = external_activation(state, current)
-    retired_installed = set(state["plugins"]) & set(suite.retired_plugins)
-    current_installed = set(state["plugins"]) - retired_installed
+    aliases = archived_plugin_aliases(suite)
+    installed_ids = set(state["plugins"])
+    archived_state = any(plugin_id in aliases for plugin_id in installed_ids)
+    retired_live_ids = {
+        plugin_id
+        for plugin_id in installed_ids
+        if aliases.get(plugin_id, plugin_id) in suite.retired_plugins
+    }
+    retired_config_ids = (
+        set(suite.retired_plugins)
+        | retired_live_ids
+        | (installed_ids & set(aliases))
+    )
+    # Archived roots remain the previous IDs for config reconciliation: every
+    # current ID is therefore introduced and written under its new namespace.
+    current_installed = installed_ids - retired_live_ids
     def desired_for(config: dict[str, Any]) -> dict[str, Any]:
         if state.get("settingsStorageVersion") == 1:
             config = migrate_state_settings(config, import_legacy=False)
@@ -986,14 +1047,14 @@ def command_repair(
                 apply_profile(config, profile, suite.plugins, paths.plugin_dir),
                 migrate_storage=suite.settings_storage_version == 1,
             )
-        ), suite.retired_plugins)
+        ), retired_config_ids)
 
     desired = desired_for(current)
     adoptable_plugin_ids = current_installed
     preflight_replacements(
         paths.plugin_dir, specs, adoptable_plugin_ids
     )
-    preflight_removal_ids(paths.plugin_dir, retired_installed)
+    preflight_removal_ids(paths.plugin_dir, retired_live_ids)
     print_plan(
         f"Repair Shinigami profile {profile.id}",
         specs,
@@ -1037,11 +1098,11 @@ def command_repair(
             previous_bar=previous_bar_for_state(state, defaults, suite),
         )
         transaction.expose()
-        transaction.stage_removal_ids(retired_installed)
+        transaction.stage_removal_ids(retired_live_ids)
         transaction.write_config(encode_config(desired))
         runtime.restart_shell()
         transaction.mark_shell_started()
-        if PICKER_PLUGIN_ID in plugin_ids:
+        if profile_installs_picker(suite, plugin_ids):
             desired_state["menuExtension"] = install_picker_menu_extension(
                 transaction, runtime, state
             )
