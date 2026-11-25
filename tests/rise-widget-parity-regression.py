@@ -23,8 +23,7 @@ STATUS = ROOT / "shinigami.status" / "Service.qml"
 
 TOOLTIP = (
     "Wallpaper manager · click to open · "
-    "middle-click for next on all displays · "
-    "right-click for settings"
+    "middle-click for next on all displays"
 )
 
 
@@ -46,9 +45,15 @@ def check_wallpaper() -> None:
     mixin = read(WALLPAPER / "rise/components/TooltipMixin.qml")
 
     require(
-        "if (button === riseEnvironment.Qt.RightButton)\n"
-        "        return riseOwner.root.openWallpaperSettings()" in logic,
-        "wallpaper logic lost its right-click settings route",
+        "if (button === riseEnvironment.Qt.RightButton) {\n"
+        "        riseEnvironment.tip.show()\n"
+        "        return true\n"
+        "    }" in logic,
+        "wallpaper right-click no longer shows the tooltip only",
+    )
+    require(
+        "openWallpaperSettings" not in logic,
+        "wallpaper right-click still routes to settings",
     )
     require(
         "wallpaperManagerServiceApi.nextAll()" in logic,
@@ -59,14 +64,13 @@ def check_wallpaper() -> None:
         "wallpaper left-click lost toggleWallpaperManager()",
     )
     require(
-        "function openWallpaperSettings()" in rise_root
-        and "return host && host.openSettings()" in rise_root,
-        "wallpaper Rise facade lost its settings route",
+        "openWallpaperSettings" not in rise_root,
+        "wallpaper Rise facade still exposes a settings route",
     )
     require(
-        "function openSettings()" in host
-        and "wallpaperomarchymanager" in host,
-        "wallpaper host lost its settings route",
+        "openSettings" not in host
+        and "wallpaperomarchymanager" not in host,
+        "wallpaper host still exposes the settings route",
     )
     require(
         "root.showTooltip(owner, text)" in mixin

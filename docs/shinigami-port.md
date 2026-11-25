@@ -50,8 +50,8 @@ original names and digests.
 - V2 keeps the flat Shinigami slot treatment and the Rise V2 glyphs.
 - Rise `TooltipMixin` behavior is translated to `bar.showTooltip` /
   `bar.hideTooltip`, preserving output-local tooltip ownership. The wallpaper
-  manager tooltip includes the right-click settings hint, and right-click
-  summons the installed wallpaper manager settings provider.
+  manager also shows that tooltip on right-click; right-click does not open
+  settings.
 - Popouts and panels continue to use Shinigami's one routed owner per output.
 - Rise-specific state that has no Shinigami owner (for example passwordless sudo
   and remote-session indicators) is not invented; the indicator model exposes

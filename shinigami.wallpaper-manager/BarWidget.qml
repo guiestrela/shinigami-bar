@@ -52,15 +52,6 @@ Item {
   function toggle() { return opened ? close() : open() }
   function closeForPopoutSwitch() { return close() }
 
-  function openSettings() {
-    if (!bar || !targetScreenName) return false
-    const provider = "io.github.guiestrela.wallpaperomarchymanager"
-    if (typeof bar.summonBarWidget === "function"
-        && bar.summonBarWidget(provider, targetScreenName)) return true
-    return typeof bar.openConfigPage === "function"
-      && bar.openConfigPage("plugins", targetScreenName)
-  }
-
   onOpenedChanged: if (!opened && bar) bar.releasePopout(root, targetScreenName)
   Component.onDestruction: {
     close()
