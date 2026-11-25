@@ -215,6 +215,7 @@ Ui.Panel {
   Row {
     id: centerRow
     anchors.centerIn: parent
+    height: root.implicitHeight
     spacing: root.centerSpacing
 
     Item {
@@ -253,6 +254,7 @@ Ui.Panel {
 
     Loader {
       id: riseClockWidget
+      anchors.verticalCenter: parent.verticalCenter
       visible: root.risePresentation && root.displayMode !== "icon"
       sourceComponent: root.tokens && root.tokens.v2Shell === true
         ? riseV2Clock : riseV1Clock
@@ -303,8 +305,7 @@ Ui.Panel {
           else root.toggle()
         }
 
-        // Keep the native line-box centring: the smaller date sits raised
-        // beside the clock. Only paint is snapped; reservation/input stay native.
+        // Snap the date text to the pixel grid without moving its button.
         Presentation.BarInk { id: datePlacement; target: dateLabel }
         Text {
           id: dateLabel

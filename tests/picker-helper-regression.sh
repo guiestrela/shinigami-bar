@@ -12,6 +12,7 @@ export XDG_CACHE_HOME=$tmp/cache
 export XDG_PICTURES_DIR=$HOME/Pictures
 export XDG_VIDEOS_DIR=$HOME/Videos
 export PATH=$tmp/bin:/usr/bin:/bin
+unset OMASNAP_SCREENSHOT_DIR OMARCHY_SCREENSHOT_DIR OMARCHY_SCREENRECORD_DIR
 omarchy_path=$tmp/omarchy
 
 mkdir -p "$HOME/.config/omarchy/themes/shared/backgrounds" \
@@ -23,7 +24,7 @@ mkdir -p "$HOME/.config/omarchy/themes/shared/backgrounds" \
   "$HOME/.local/state/omarchy/current/theme/backgrounds" \
   "$HOME/.config/omarchy/backgrounds/current" \
   "$HOME/.local/state/omarchy/current" \
-  "$HOME/Pictures" "$HOME/Videos" "$tmp/bin"
+  "$HOME/Pictures/Screenshots/archive" "$HOME/Videos" "$tmp/bin"
 
 printf 'current\n' >"$HOME/.local/state/omarchy/current/theme.name"
 printf 'user shared' >"$HOME/.config/omarchy/themes/shared/preview.png"
@@ -34,6 +35,11 @@ printf 'official only' >"$omarchy_path/themes/official/preview.png"
 printf 'stock wallpaper' >"$HOME/.local/state/omarchy/current/theme/backgrounds/stock.png"
 printf 'user wallpaper' >"$HOME/.config/omarchy/backgrounds/current/user.webp"
 printf 'shot' >"$HOME/Pictures/screenshot-2026-07-17_01-00-00.png"
+printf 'omasnap shot' >"$HOME/Pictures/Screenshots/screenshot-2026-07-18_01-00-00-browser.png"
+printf 'unrelated image' >"$HOME/Pictures/Screenshots/photo.png"
+printf 'archived shot' >"$HOME/Pictures/Screenshots/archive/screenshot-archived.png"
+touch -t 202607170100 "$HOME/Pictures/screenshot-2026-07-17_01-00-00.png"
+touch -t 202607180100 "$HOME/Pictures/Screenshots/screenshot-2026-07-18_01-00-00-browser.png"
 printf 'video' >"$HOME/Videos/capture.mp4"
 
 cat >"$tmp/bin/magick" <<'EOF'
@@ -104,8 +110,25 @@ cached_rows=$($helper cached wallpaper)
   || fail "warm thumbnails were not reflected in cached rows"
 
 screenshot_rows=$($helper scan screenshots "$omarchy_path")
-[[ $(printf '%s\n' "$screenshot_rows" | wc -l) -eq 1 ]] \
-  || fail "screenshot scan contract"
+expected_screenshots=$(printf '%s\n' \
+  "$HOME/Pictures/Screenshots/screenshot-2026-07-18_01-00-00-browser.png" \
+  "$HOME/Pictures/screenshot-2026-07-17_01-00-00.png")
+[[ $(printf '%s\n' "$screenshot_rows" | cut -f1) == "$expected_screenshots" ]] \
+  || fail "screenshot scan did not combine Omasnap and legacy captures newest first"
+
+legacy_output="$HOME/Legacy captures"
+omasnap_output="$HOME/Omasnap captures"
+mkdir -p "$legacy_output" "$omasnap_output"
+printf 'legacy override' >"$legacy_output/screenshot-legacy.png"
+printf 'omasnap override' >"$omasnap_output/screenshot-omasnap.png"
+screenshot_rows=$(OMARCHY_SCREENSHOT_DIR="$legacy_output" \
+  "$helper" scan screenshots "$omarchy_path")
+[[ $(cut -f1 <<<"$screenshot_rows") == "$legacy_output/screenshot-legacy.png" ]] \
+  || fail "legacy screenshot directory override was ignored"
+screenshot_rows=$(OMASNAP_SCREENSHOT_DIR="$omasnap_output" \
+  OMARCHY_SCREENSHOT_DIR="$legacy_output" "$helper" scan screenshots "$omarchy_path")
+[[ $(cut -f1 <<<"$screenshot_rows") == "$omasnap_output/screenshot-omasnap.png" ]] \
+  || fail "Omasnap screenshot directory override did not take precedence"
 
 video_rows=$($helper scan videos "$omarchy_path")
 video_source=$(printf '%s\n' "$video_rows" | cut -f1)

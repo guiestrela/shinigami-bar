@@ -14,18 +14,30 @@ ShellRoot {
 
   property bool dictationChecked: false
   Status.Service { id: dictationBackend; runtimeProbesEnabled: false }
+  property var dictationProbe: null
   DictationIo.Process {
     id: dictationSetup; running: true
     command: ["bash", "-c", "d=$XDG_RUNTIME_DIR/dictation-bin; mkdir \"$d\"; ln -s /usr/bin/bash \"$d/bash\"; ln -s /usr/bin/setpriv \"$d/setpriv\"; printf '%s\\n' \"$1\" >\"$d/voxtype\"; chmod 700 \"$d/voxtype\"", "fixture", "#!/bin/bash\n[[ \"$*\" == \"status --follow --extended --format json\" ]] || exit 2\nprintf '%s\\n' '{\"alt\":\"recording\",\"tooltip\":\"fixture\"}'\nexec /usr/bin/sleep 0.2"]
-    onExited: function(code) { if (code !== 0) return root.fail("dictation fixture setup"); const p = Array.from(dictationBackend.resources).find(p => "command" in p && p.command[0] === "bash"); p.environment = ({ PATH: Quickshell.env("XDG_RUNTIME_DIR") + "/dictation-bin" }); dictationBackend.runtimeProbesEnabled = true; p.running = true }
+    onExited: function(code) {
+      if (code !== 0) return root.fail("dictation fixture setup")
+      const probe = Array.from(dictationBackend.resources).find(
+        resource => "command" in resource
+          && resource.command.join(" ").includes("voxtype status --follow"))
+      if (!probe) return root.fail("dictation status probe missing")
+      root.dictationProbe = probe
+      probe.environment = ({ PATH: Quickshell.env("XDG_RUNTIME_DIR") + "/dictation-bin" })
+      dictationBackend.runtimeProbesEnabled = true
+      probe.running = true
+    }
   }
   Timer { id: dictationCheck; interval: 40; repeat: true; running: true; property int phase: 0
     onTriggered: {
-      const p = Array.from(dictationBackend.resources).find(p => "command" in p && p.command[0] === "bash")
+      const p = root.dictationProbe
       if (dictationCheck.phase === 0 && dictationBackend.voxtypeActive) { if (dictationBackend.voxtypeHint !== "fixture") return root.fail("direct dictation status"); dictationCheck.phase = 1 }
       else if (dictationCheck.phase === 1 && !p.running) { dictationCheck.phase = 2; dictationSetup.command = ["/usr/bin/rm", Quickshell.env("XDG_RUNTIME_DIR") + "/dictation-bin/voxtype"]; dictationSetup.running = true }
       else if (dictationCheck.phase === 2 && !dictationBackend.voxtypeRetryEnabled) {
-        if (dictationBackend.voxtypeAvailable || Array.from(dictationBackend.resources).find(t => "interval" in t && t.interval === 60000).running) return root.fail("absent dictation backend retried")
+        if (dictationBackend.voxtypeAvailable || p.running)
+          return root.fail("absent dictation backend retried")
         root.dictationChecked = true; stop()
       }
     }

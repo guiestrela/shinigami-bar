@@ -23,6 +23,15 @@ ShellRoot {
     return null
   }
 
+  function clockCentered(widget) {
+    const weatherHolder = widget.weatherWidget.parent
+    const clockLoader = weatherHolder.parent.children.find(
+      child => "sourceComponent" in child && child.visible)
+    return clockLoader && clockLoader.item
+      && Math.abs((clockLoader.y + clockLoader.height / 2)
+        - (weatherHolder.y + weatherHolder.height / 2)) <= 0.5
+  }
+
   component FakeUpdate: Item {
     property var bar: null
     property string moduleName: ""
@@ -450,6 +459,8 @@ ShellRoot {
             + " pill=" + (surface ? surface.height : -1)
             + " y=" + (surface ? surface.y : -1)
             + " fill=" + (surface ? surface.v1CustomFill : false))
+        if (!root.clockCentered(center))
+          return root.fail("V1 clock is off the center row axis")
         const v2Tokens = ({})
         for (const key in fakeBar.visualTokens)
           v2Tokens[key] = fakeBar.visualTokens[key]
@@ -471,6 +482,8 @@ ShellRoot {
             + " y=" + (surface ? surface.y : -1)
             + " shellPill=" + (surface
               ? surface.shellPillVisible : true))
+        if (!root.clockCentered(center))
+          return root.fail("V2 clock is off the center row axis")
         stop()
         const reservation = Qt.createQmlObject('import QtQuick; QtObject { property bool visible: true }', root)
         center.availableWidth = 80

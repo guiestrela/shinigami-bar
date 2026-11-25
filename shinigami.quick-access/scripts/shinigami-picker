@@ -188,7 +188,7 @@ media_root() {
     [[ -n $value ]] || value=$(xdg-user-dir VIDEOS 2>/dev/null || true)
     [[ -n $value && $value != "$HOME" ]] || value=$HOME/Videos
   else
-    value=${OMARCHY_SCREENSHOT_DIR:-${XDG_PICTURES_DIR:-}}
+    value=${XDG_PICTURES_DIR:-}
     [[ -n $value ]] || value=$(xdg-user-dir PICTURES 2>/dev/null || true)
     [[ -n $value && $value != "$HOME" ]] || value=$HOME/Pictures
   fi
@@ -196,10 +196,10 @@ media_root() {
 }
 
 scan_media() {
-  local mode=$1 root source
-  root=$(media_root "$mode")
-  [[ -d $root ]] || return 0
+  local mode=$1 root source record
   if [[ $mode == videos ]]; then
+    root=$(media_root "$mode")
+    [[ -d $root ]] || return 0
     while IFS= read -r source; do
       [[ -n $source ]] && emit_row videos "$source" "${source##*/}" "$root"
     done < <(find "$root" -maxdepth 1 -type f \
@@ -207,12 +207,24 @@ scan_media() {
          -o -iname '*.mov' -o -iname '*.avi' -o -iname '*.m4v' \) \
       -printf '%T@\t%p\n' 2>/dev/null | sort -rn | head -n 100 | cut -f2-)
   else
-    while IFS= read -r source; do
-      [[ -n $source ]] && emit_row screenshots "$source" "${source##*/}" "$root"
-    done < <(find "$root" -maxdepth 1 -type f \
+    local -a roots
+    root=${OMASNAP_SCREENSHOT_DIR:-${OMARCHY_SCREENSHOT_DIR:-}}
+    if [[ -n $root && $root != "$HOME" ]]; then
+      roots=("$root")
+    else
+      root=$(media_root "$mode")
+      roots=("${root%/}/Screenshots" "$root")
+      if [[ ${root%/} != "$HOME/Pictures" ]]; then
+        roots+=("$HOME/Pictures/Screenshots")
+      fi
+    fi
+    while IFS= read -r -d '' record; do
+      source=${record#*$'\t'}
+      emit_row screenshots "$source" "${source##*/}" "${source%/*}"
+    done < <(find -H "${roots[@]}" -maxdepth 1 -type f \
       \( -iname 'screenshot-*.png' -o -iname 'screenshot-*.jpg' \
          -o -iname 'screenshot-*.jpeg' -o -iname 'screenshot-*.webp' \) \
-      -printf '%T@\t%p\n' 2>/dev/null | sort -rn | head -n 100 | cut -f2-)
+      -printf '%T@\t%p\0' 2>/dev/null | sort -zrn | head -z -n 100)
   fi
 }
 

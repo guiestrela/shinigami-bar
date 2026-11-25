@@ -153,10 +153,12 @@ Item {
 
   Process {
     id: sudoStatus
-    command: ["bash", "-c", "command -v omarchy-sudo-passwordless >/dev/null && exec omarchy-sudo-passwordless --active"]
-    onExited: function(code) {
-      root.passwordlessSudo = code === 0
-      root.passwordlessSudoAvailable = code === 0 || code === 3
+    command: ["bash", "-c", "command -v omarchy-sudo-passwordless >/dev/null || exit 69; exec omarchy-sudo-passwordless --active"]
+    onExited: function(code, exitStatus) {
+      const completed = exitStatus === 0
+      root.passwordlessSudo = completed && code === 0
+      // Omarchy 4.5 returns 1 when passwordless sudo is inactive.
+      root.passwordlessSudoAvailable = completed && (code === 0 || code === 1 || code === 3)
     }
   }
 
