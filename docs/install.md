@@ -1,4 +1,4 @@
-# Install and update
+# Install, update, and remove
 
 Status: user reference
 
@@ -28,8 +28,27 @@ Live rows remain unavailable through the host proxy on both.
 
 ## Install from a package
 
-The packaging directory contains the local Shinigami package scaffold. A
-package installation requires an admitted Shinigami release identity.
+`shinigami-shell` is published through Omarchy's package repository. Install
+the package, then stage and verify the suite as the desktop user. Pacman owns
+only the immutable payload; the lifecycle command owns the 27 plugin roots and
+all user state.
+
+```bash
+omarchy pkg add shinigami-shell
+shinigami-shell install --dry-run
+shinigami-shell install --yes
+```
+
+A package installation requires an admitted Shinigami release identity. The
+`packaging/` directory remains available for local package builds; it is not
+required when installing from the published package.
+
+To install the package payload without replacing the active bar or its widget
+layout, use:
+
+```bash
+shinigami-shell install --no-activate --keep-layout --yes
+```
 
 ## Install from source
 

@@ -347,9 +347,12 @@ def main() -> None:
     bash_pattern = re.compile(r"^[ \t]*```bash\n(.*?)^[ \t]*```[ \t]*$", re.DOTALL | re.MULTILINE)
     bash_blocks = bash_pattern.findall(readme)
     install_guide = (REPO_ROOT / "docs/install.md").read_text(encoding="utf-8")
+    readme_install = readme.split("\n## Install\n", 1)[1].split("\n## ", 1)[0]
     source_commands = []
-    for document, section in ((readme, "Install"), (install_guide, "Install from source")):
-        source = document.split(f"\n## {section}\n", 1)[1].split("\n## ", 1)[0]
+    for source in (
+        readme_install.split("\n### From source\n", 1)[1],
+        install_guide.split("\n## Install from source\n", 1)[1].split("\n## ", 1)[0],
+    ):
         commands = [
             block.strip()
             for block in bash_pattern.findall(source.split("\n### ", 1)[0])
@@ -362,6 +365,27 @@ def main() -> None:
         source_commands.append(commands)
     if source_commands[0] != source_commands[1]:
         fail("README and install guide source commands have drifted")
+
+    package_install_commands = [
+        "omarchy pkg add shinigami-shell",
+        "shinigami-shell install --dry-run",
+        "shinigami-shell install --yes",
+    ]
+    guide_package = install_guide.split(
+        "\n## Install from a package\n", 1
+    )[1].split("\n## ", 1)[0]
+    for command in package_install_commands:
+        if command not in readme_install or command not in guide_package:
+            fail("README and install guide must show the package install commands")
+    for command in (
+        "omarchy update",
+        "shinigami-shell update --dry-run",
+        "shinigami-shell update --yes",
+        "shinigami-shell uninstall --dry-run",
+        "omarchy pkg drop shinigami-shell",
+    ):
+        if command not in readme:
+            fail(f"README landing page is missing lifecycle command: {command}")
     packages = json.loads(
         (REPO_ROOT / "contracts/package-runtime-v1.json").read_text(encoding="utf-8")
     )["requiredPackages"]

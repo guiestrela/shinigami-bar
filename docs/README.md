@@ -12,7 +12,7 @@ records. Supporting documents never override the canonical
 For users:
 
 1. [Get started](getting-started.md)
-2. [Install and update](install.md)
+2. [Install, update, and remove](install.md)
 3. [Configuration](configuration.md)
 4. [Plugin catalog](plugins/README.md)
 5. [Plugin compatibility](plugin-compatibility.md)
@@ -63,7 +63,7 @@ For parity and release evidence:
 | Document | Purpose |
 | --- | --- |
 | [Get started](getting-started.md) | Control Center, bar switching, customization, and saved state |
-| [Install and update](install.md) | Install, migrate, activate, update, deactivate, and remove the suite |
+| [Install, update, and remove](install.md) | Install, migrate, activate, update, deactivate, and remove the suite |
 | [Configuration](configuration.md) | Omarchy shell settings, Shinigami state, and ownership |
 | [Plugin catalog](plugins/README.md) | The 27 plugin roots, roles, and host dependencies |
 | [Plugin compatibility](plugin-compatibility.md) | Supported use with stock, Shinigami-compatible, and third-party bars |

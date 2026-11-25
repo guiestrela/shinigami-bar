@@ -59,9 +59,31 @@ These captures come from Shibumi Shell and show the interface the port builds on
 
 ## Install
 
-Use a clean Shinigami Git checkout on Omarchy Quattro. The installer requires
-a committed Git revision even for a dry run. A source archive or a directory
-copied without its Git metadata cannot run the installer.
+Run lifecycle commands from a terminal in an unlocked Omarchy desktop session.
+Plain SSH cannot reach the compositor for the shell restart.
+
+### From a package
+
+When `shinigami-shell` is available from your Omarchy package channel, install
+the package and then stage the suite into the current user session. The package
+contains the immutable payload; the lifecycle command installs and verifies the
+27 plugin roots without writing user state during Pacman's transaction.
+
+```bash
+omarchy pkg add shinigami-shell
+shinigami-shell install --dry-run
+shinigami-shell install --yes
+```
+
+To keep the current bar and widget layout, add `--no-activate --keep-layout` to
+the staged install. See the [installation guide](docs/install.md) for the
+source-to-package workflow and recovery options.
+
+### From source
+
+Use a clean Shinigami Git checkout on Omarchy Quattro. The source installer
+requires a committed Git revision even for a dry run. A source archive or a
+directory copied without its Git metadata cannot run the installer.
 
 1. In an unlocked Omarchy desktop session, open a terminal at the checkout
    root and install the dependencies.
@@ -83,20 +105,42 @@ copied without its Git metadata cannot run the installer.
    ./scripts/shinigami-suite install
    ```
 
-The package scaffold is for local builds. For updates or installation while
-keeping the current bar, see the [installation guide](docs/install.md).
+To install the suite without replacing the active bar, use
+`./scripts/shinigami-suite install --no-activate --keep-layout --yes`.
+
+## Update
+
+Updating the system package does not update a running desktop by itself. Stage
+the new immutable payload explicitly after `omarchy update`:
+
+```bash
+omarchy update
+shinigami-shell update --dry-run
+shinigami-shell update --yes
+```
+
+For a source installation, update from a trusted clean checkout:
+
+```bash
+./scripts/shinigami-suite update --dry-run
+./scripts/shinigami-suite update --yes
+./scripts/shinigami-suite status
+```
 
 ## Uninstall
 
-For a package installation, remove the managed plugins and then the package.
+For a package installation, preview the user-level removal, remove the managed
+suite, then drop the package:
 
 ```bash
+shinigami-shell uninstall --dry-run
 shinigami-shell uninstall --yes && omarchy pkg drop shinigami-shell
 ```
 
-For a source installation, run this from the checkout root.
+For a source installation, run these from the checkout root:
 
 ```bash
+./scripts/shinigami-suite uninstall --dry-run
 ./scripts/shinigami-suite uninstall --yes
 ```
 
