@@ -133,6 +133,25 @@ rg -Fq 'bar.requestPopout(root)' "$bar_widget" \
 rg -Fq 'bar.releasePopout(root)' "$bar_widget" \
   || fail "OneDrive widget does not release its popout lease"
 
+if rg -q 'Presentation\.PillSurface' "$bar_widget"; then
+  fail "OneDrive still adds an outer standalone pill around its glyph"
+fi
+if rg -Fq 'oneDrivePillV2' "$bar_widget"; then
+  fail "OneDrive still paints a V2 pill that belongs to the slot owner"
+fi
+rg -Fq 'backgroundComponent: root.tokens && (root.tokens.v2Shell === true' \
+    "$bar_widget" \
+  || fail "OneDrive lost its Rise V1 pill ownership gate"
+rg -Fq '|| (root.bar && root.bar.vertical)) ? null : oneDrivePillV1' \
+    "$bar_widget" \
+  || fail "OneDrive V1 pill is not disabled in V2 and vertical bars"
+rg -Fq 'id: oneDrivePillV1' "$bar_widget" \
+  || fail "OneDrive lost Rise's single V1 background pill"
+rg -Fq 'RiseV1.PillShadow { theme: root.oneDriveRoot }' "$bar_widget" \
+  || fail "OneDrive V1 pill lost its shadow owner"
+rg -Fq 'implicitWidth: visible ? actionRow.implicitWidth : 0' "$bar_widget" \
+  || fail "OneDrive bar width still reserves standalone pill padding"
+
 if rg -qi 'onedrive|omaonedrive' \
     "$repo_root/shinigami.quick-access/BarWidget.qml" \
     "$repo_root/shinigami.quick-access/Service.qml"; then

@@ -297,7 +297,7 @@ Ui.Panel {
         horizontalMargin: 0
         verticalPadding: 0
         fixedHeight: root.implicitHeight
-        tooltipText: Qt.formatDate(root.displayDate, "dddd, d MMMM yyyy")
+        tooltipText: ""
         onPressed: function(button) {
           if (button === Qt.RightButton && root.bar) root.bar.run("omarchy-menu-timezone")
           else root.toggle()

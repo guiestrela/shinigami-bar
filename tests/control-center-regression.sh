@@ -60,8 +60,11 @@ QtObject { id: root
   property bool nativeCatalogRequired: false; property bool v2LayoutActive: false; property string pluginActionError: ""
   property var pluginRegistry: ({installedPlugins: {}, setEnabled: function() { return false }})
   property var layout: []; property var groups: ({}); property int layoutWrites: 0
+  property var barWidgetToggles: []; property int groupStateTransitions: 0
   property var bar: root; readonly property var layoutConfig: ({left: [], center: [], right: layout}); property var layoutStateController: ({v2Mode:false, groupLocation: function(group) { return GroupRegistry.configuredEntry(root.layoutConfig, GroupRegistry.dynamicModuleIdForGroup(group)) !== null ? {region:"right"} : null }})
-  function setPluginBarWidgetEnabled(id, on, section) { layoutWrites++; return false }
+  function standaloneSuiteWidget(id) { return root.isStandaloneSuiteWidget(String(id || "")) }
+  function requestWidgetGroupStateTransition() { groupStateTransitions++; return true }
+  function setPluginBarWidgetEnabled(id, on, section) { layoutWrites++; barWidgetToggles.push({id: String(id || ""), on: on === true, section: String(section || "")}); return true }
   function groupEnabled(group) { return groups[group] === true }
   function setGroupEnabled(group, on, coalesce) { groups[group] = on; return true }
   Component.onCompleted: Qt.callLater(function() {
@@ -77,6 +80,18 @@ QtObject { id: root
     if (!returned || returned.unplaced.length || returned.order.left[8] !== "G15" || returned.order.parked || returned.order.right[7] !== "G:shinigami.storage" || JSON.stringify(returned.splits) !== JSON.stringify(vacated.splits)) { console.error("P14 parked fixed return must use the same allocator without losing splits"); Qt.exit(1); return }
     const next = LayoutModel.reconcilePluginGroups(order, LayoutModel.resizeSplits(LayoutModel.defaultSplits(), order), ids.map(id => ({pluginId:id,region:"right"})), ["G:shinigami.gpu"])
     if (!next || next.unplaced.length || next.order.left[8] !== "G:shinigami.temperature" || JSON.stringify(next.order.right) !== JSON.stringify(order.right) || JSON.stringify(next.order.center) !== JSON.stringify(order.center) || JSON.stringify(next.order.left.slice(0,8)) !== JSON.stringify(order.left.slice(0,8))) { console.error("P14 disabled GPU did not release its exact additional slot"); Qt.exit(1); return }
+    const standaloneIds = ["shinigami.onedrive", "shinigami.wallpaper-manager", "shinigami.indicators"]
+    const layoutBeforeStandalone = JSON.stringify(layout)
+    for (const id of standaloneIds) {
+      pluginRegistry.installedPlugins[id] = {kinds:["bar-widget"], "x-shinigami": {suiteId:"hancore.shibumi"}, barWidget:{defaultSection:"right"}}
+      for (const on of [true, false]) {
+        const togglesBefore = barWidgetToggles.length
+        const groupBefore = groups["G:" + id] === true
+        if (!setPluginEnabled(id, on, true) || barWidgetToggles.length !== togglesBefore + 1 || barWidgetToggles[togglesBefore].id !== id || barWidgetToggles[togglesBefore].on !== on || groupEnabled("G:" + id) !== groupBefore || groupStateTransitions !== 0 || pluginActionError !== "") { console.error("Appearance alias changed plugin activation routing", id, on, pluginActionError); Qt.exit(1); return }
+      }
+    }
+    if (barWidgetToggles.length !== standaloneIds.length * 2 || JSON.stringify(layout) !== layoutBeforeStandalone) { console.error("Appearance alias activation did not stay on the bar-widget path"); Qt.exit(1); return }
+    layoutWrites = 0
     let failures = 0; for (const id of ["shinigami.temperature", "shinigami.gpu", "shinigami.storage"]) { pluginRegistry.installedPlugins[id] = {kinds:["bar-widget"]}; for (const on of [true, false, true, false]) { layout = [{id:"other"}, {id:"shinigami.gpu", shinigamiModule:true}, {id:"shinigami.temperature"}, {id:"shinigami.storage"}]; const before = JSON.stringify(layout); groups["G:" + id] = !on; if (!setPluginEnabled(id, on, true) || groupEnabled("G:" + id) !== on || layoutWrites !== 0 || JSON.stringify(layout) !== before) { console.error("V1 configured widget did not toggle its group without layout mutation", id, on, pluginActionError); failures++ } } } if (failures) Qt.exit(1); else { console.log("V1 configured widget toggles passed with actual Bar membership"); Qt.quit() } })
 ''' .replace('BAR_CORE', str(Path(sys.argv[1]) / 'shinigami.bar/core')) + owner_methods + methods + '}\n')
 PY
@@ -1637,7 +1652,7 @@ if rg -Fq 'height: visible ? Commons.Style.space(48) : 0' \
   fail "plugin feedback still shifts the catalog layout"
 fi
 for suite_boundary in \
-    'userToggleable: barWidget && placement !== "" && (!suiteManaged || group !== "")' \
+    'userToggleable: barWidget && placement !== "" && (!suiteManaged || group !== "" || standaloneSuiteWidget(id))' \
     'styleAvailable: placement !== ""' \
     'No free place in the V1 bar. Turn off another additional widget first.' \
     'Control Center rejected suite-internal plugin toggle:' \
@@ -1653,6 +1668,35 @@ for parity_contract in \
   rg -Fq "$parity_contract" "$control_dir/ControlCenterPanel.qml" \
     || fail "V1/V2 plugin management parity drifted: $parity_contract"
 done
+for rise_alias_contract in \
+    'WidgetCatalog.js:{ group: "G20", label: "Wallpapers"' \
+    'WidgetCatalog.js:{ group: "G22", label: "OneDrive"' \
+    'WidgetCatalog.js:{ group: "G23", label: "Indicators"' \
+    'WidgetAppearanceWorkbench.qml:readonly property var catalogOnlyGroupPluginIds' \
+    'WidgetAppearanceWorkbench.qml:function catalogAliasForPluginId(pluginId)' \
+    'WidgetAppearanceWorkbench.qml:return "G:" + String(catalogOnlyGroupPluginIds[group] || "")' \
+    'WidgetAppearanceWorkbench.qml:if (catalogGroup === "G20" || catalogGroup === "G23")' \
+    'WidgetAppearanceWorkbench.qml:if (catalogGroup === "G22") return riseCompactModeOptions' \
+    'Service.qml:readonly property var catalogAliasAppearanceGroupIds'; do
+  file=${rise_alias_contract%%:*}
+  label=${rise_alias_contract#*:}
+  target="$control_dir/$file"
+  [[ -f $target ]] || target="$repo_root/shinigami.state/$file"
+  rg -Fq "$label" "$target" \
+    || fail "Rise appearance alias contract drifted: $label"
+done
+appearance_groups=$(sed -n \
+  '/readonly property var activeGroupIds:/,/readonly property var overviewOptions:/p' \
+  "$control_dir/WidgetAppearanceWorkbench.qml")
+if grep -Eq 'G20|G22|G23' <<<"$appearance_groups"; then
+  fail "native appearance groups were widened with Rise catalog aliases"
+fi
+widget_group_scope=$(sed -n \
+  '/function shinigamiWidgetGroup(/,/function widgetInstalled(/p' \
+  "$control_dir/ControlCenterPanel.qml")
+if grep -Eq 'G20|G22|G23' <<<"$widget_group_scope"; then
+  fail "plugin activation was rerouted through Rise catalog aliases"
+fi
 rg -Fq 'controller.pluginActionError' \
   "$control_dir/PluginCatalogPage.qml" \
   || fail "plugin capacity failure is not actionable in the catalog"

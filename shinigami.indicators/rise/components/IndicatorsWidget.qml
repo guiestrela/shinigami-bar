@@ -24,9 +24,9 @@ Item {
         {id: "NightLight", glyph: "󰔎", active: coordinator.nightLight,
             available: coordinator.nightLightAvailable, label: "Enable night light", activeLabel: "Disable night light"},
         {id: "Dnd", glyph: "󰂛", active: coordinator.silenced,
-            available: true, label: "Silence notifications", activeLabel: "Allow notifications"},
+            available: coordinator.notificationsAvailable, label: "Silence notifications", activeLabel: "Allow notifications"},
         {id: "StayAwake", glyph: "", active: coordinator.awake,
-            available: true, label: "Stay awake", activeLabel: "Allow idle lock"},
+            available: coordinator.idleAvailable, label: "Stay awake", activeLabel: "Allow idle lock"},
         {id: "Voxtype", glyph: "", active: coordinator.voxtype,
             available: coordinator.voxtypeAvailable, label: "Voxtype · left: model · right: settings",
             activeLabel: "Voxtype · left: model · right: settings"}

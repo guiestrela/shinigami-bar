@@ -18,6 +18,11 @@ bar entry in V1 and V2.
 | `shinigami.indicators` | Shows recording, Do Not Disturb, Stay Awake, and Voxtype status next to the clock | `shinigami.status` |
 | `shinigami.onedrive` | Shows sync status and opens the account panel | `shinigami.onedrive` |
 
+The Icons page maps the Rise catalog aliases G20 to `shinigami.wallpaper-manager`,
+G22 to `shinigami.onedrive`, and G23 to `shinigami.indicators`. These aliases are
+appearance-only; they are not native bar groups and do not change plugin
+activation.
+
 Quick Access exposes themes, idle inhibition, and the screenshots and videos
 pickers. Center owns the clock, calendar, weather, and update presentation.
 The suite profile declares 27 plugin roots.

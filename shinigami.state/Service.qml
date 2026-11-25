@@ -141,6 +141,11 @@ Item {
     "G:shinigami.gpu",
     "G:shinigami.storage"
   ]
+  readonly property var catalogAliasAppearanceGroupIds: [
+    "G:shinigami.wallpaper-manager",
+    "G:shinigami.onedrive",
+    "G:shinigami.indicators"
+  ]
 
   function normalizedVariant(value) {
     return String(value || "").toLowerCase() === "v2" ? "v2" : "v1"
@@ -164,6 +169,7 @@ Item {
     const group = String(groupId || "")
     const variant = normalizedVariant(variantValue)
     return ShinigamiConfig.GroupIds.indexOf(group) >= 0
+      || catalogAliasAppearanceGroupIds.indexOf(group) >= 0
       || variant === "v1"
         && v1ExtensionAppearanceGroupIds.indexOf(group) >= 0
   }

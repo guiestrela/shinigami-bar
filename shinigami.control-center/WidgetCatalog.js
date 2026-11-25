@@ -18,5 +18,8 @@ const AppearanceOptions = [
   { group: "G15", label: "Bluetooth", glyph: "bluetooth", modes: ["full", "icon", "text"] },
   { group: "G16", label: "Temperature", glyph: "device_thermostat", modes: ["full", "icon", "text"] },
   { group: "G17", label: "GPU", glyph: "memory_alt", modes: ["full", "icon", "text"] },
-  { group: "G18", label: "Storage", glyph: "hard_drive", modes: ["full", "icon", "text"] }
+  { group: "G18", label: "Storage", glyph: "hard_drive", modes: ["full", "icon", "text"] },
+  { group: "G20", label: "Wallpapers", glyph: "wallpaper", modes: ["full", "icon", "text"] },
+  { group: "G22", label: "OneDrive", glyph: "cloud", modes: ["full", "icon", "text"] },
+  { group: "G23", label: "Indicators", glyph: "toggle_on", modes: ["full", "icon", "text"] }
 ]

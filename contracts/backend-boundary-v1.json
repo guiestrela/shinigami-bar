@@ -461,6 +461,8 @@
     {"value":"omarchy-theme-remove","count":1,"category":"omarchyAction","owner":"quattro.host","capability":"theme-background-selection"},
     {"value":"omarchy-theme-set","count":4,"category":"omarchyAction","owner":"quattro.host","capability":"theme-background-selection"},
     {"value":"omarchy-theme-switcher","count":2,"category":"omarchyAction","owner":"quattro.host","capability":"theme-background-selection"},
+    {"value":"omarchy-toggle-idle","count":1,"category":"omarchyAction","owner":"shinigami.indicators","capability":"bar-host-routing","reason":"When the typed idle backend is unavailable, the indicator coordinator uses the host idle toggle so Stay Awake stays actionable exactly as in Rise."},
+    {"value":"omarchy-toggle-notification-silencing","count":1,"category":"omarchyAction","owner":"shinigami.indicators","capability":"bar-host-routing","reason":"When the typed notification backend is unavailable, the indicator coordinator uses the host silencing toggle so DND stays actionable exactly as in Rise."},
     {"value":"omarchy-update","count":1,"category":"omarchyAction","owner":"quattro.host","capability":"omarchy-update-action"},
     {"value":"omarchy-voxtype-config","count":1,"category":"omarchyBackend","owner":"shinigami.status","capability":"recording-voxtype","backend":"omarchy.voxtype","removalStep":"Step 8","reason":"Move Voxtype actions behind the typed Shinigami status service."},
     {"value":"omarchy-voxtype-model","count":1,"category":"omarchyBackend","owner":"shinigami.status","capability":"recording-voxtype","backend":"omarchy.voxtype","removalStep":"Step 8","reason":"Move Voxtype actions behind the typed Shinigami status service."},

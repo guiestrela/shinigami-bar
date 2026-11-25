@@ -567,9 +567,9 @@ ShellRoot {
             || !panel.settingsPageItem
             || !panel.settingsPageItem.ready
             || !panel.settingsPageItem.workbenchReady
-            || panel.settingsPageItem.widgetOptionCount !== 18
+            || panel.settingsPageItem.widgetOptionCount !== 21
             || panel.settingsPageItem.activeWidgetCount !== 12
-            || panel.settingsPageItem.inactiveWidgetCount !== 6
+            || panel.settingsPageItem.inactiveWidgetCount !== 9
             || !panel.settingsPageItem.allWidgetModesReady)
           return root.fail("appearance page did not instantiate")
 
@@ -780,7 +780,8 @@ ShellRoot {
           return root.fail("CPU preview did not separate Default and Compact")
         const v1AppearanceGroups = [
           "G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G9",
-          "G10", "G11", "G12", "G13", "G14", "G15", "G16", "G17", "G18"
+          "G10", "G11", "G12", "G13", "G14", "G15", "G16", "G17", "G18",
+          "G20", "G22", "G23"
         ]
         for (let index = 0; index < v1AppearanceGroups.length; index++) {
           if (!appearance.openWidgetDetails(v1AppearanceGroups[index], "")
@@ -982,7 +983,7 @@ ShellRoot {
           return root.fail("Icons allowed Control Center self-disable")
         if (!appearance.setWidgetEnabled("G4", false)
             || appearance.activeWidgetCount !== 11
-            || appearance.inactiveWidgetCount !== 7
+            || appearance.inactiveWidgetCount !== 10
             || stateService.groupEnabledForVariant("G4", "v1")
             || !stateService.groupEnabledForVariant("G4", "v2")
             || stateService.groupAppearanceSettingForVariant(
@@ -992,7 +993,7 @@ ShellRoot {
           return root.fail("Icons did not deactivate Memory without style loss")
         if (!appearance.setWidgetEnabled("G4", true)
             || appearance.activeWidgetCount !== 12
-            || appearance.inactiveWidgetCount !== 6
+            || appearance.inactiveWidgetCount !== 9
             || !stateService.groupEnabledForVariant("G4", "v1")
             || !stateService.groupEnabledForVariant("G4", "v2")
             || stateService.groupAppearanceSettingForVariant(
@@ -1027,7 +1028,7 @@ ShellRoot {
               "G:shinigami.storage", "v1", "displayMode", ""))
         panel.v2LayoutActive = true
         if (appearance.activeWidgetCount !== 15
-            || appearance.inactiveWidgetCount !== 3
+            || appearance.inactiveWidgetCount !== 6
             || !appearance.widgetDetailOpen
             || !appearance.selectedWidgetActive
             || !appearance.openWidgetDetails(
@@ -1035,20 +1036,49 @@ ShellRoot {
           return root.fail("V2 Icons did not expose its active widget set")
         if (!appearance.setWidgetEnabled("G18", false)
             || appearance.activeWidgetCount !== 14
-            || appearance.inactiveWidgetCount !== 4
+            || appearance.inactiveWidgetCount !== 7
             || appearance.selectedWidgetActive)
           return root.fail("V2 Icons did not move Storage to inactive")
         if (!appearance.setWidgetEnabled("G18", true)
             || appearance.activeWidgetCount !== 15
-            || appearance.inactiveWidgetCount !== 3
+            || appearance.inactiveWidgetCount !== 6
             || !appearance.selectedWidgetActive
             || panel.presentationPluginRequests
               !== presentationRequestsBefore + 4)
           return root.fail("V2 Icons did not restore Storage through coalesced presentation requests")
         panel.rejectNonPresentationWhilePending = false
+        const riseAppearanceAliases = [
+          ["G20", "shinigami.wallpaper-manager", ["full"]],
+          ["G22", "shinigami.onedrive", ["icon", "full"]],
+          ["G23", "shinigami.indicators", ["full"]]
+        ]
+        for (let index = 0; index < riseAppearanceAliases.length; index++) {
+          const alias = riseAppearanceAliases[index]
+          const settingsGroup = "G:" + alias[1]
+          if (!appearance.openWidgetDetails(alias[0], alias[1])
+              || appearance.selectedWidgetGroup !== settingsGroup
+              || appearance.selectedWidgetId !== alias[1]
+              || appearance.selectedWidgetModeOptions.length !== alias[2].length)
+            return root.fail("Rise appearance alias missing " + alias[0])
+          for (let modeIndex = 0;
+              modeIndex < alias[2].length; modeIndex++) {
+            if (appearance.selectedWidgetModeOptions[modeIndex].value
+                !== alias[2][modeIndex])
+              return root.fail("Rise appearance mode drifted for " + alias[0])
+          }
+          if (!appearance.controller.setGroupSetting(
+                settingsGroup, "color", "color05")
+              || stateService.groupAppearanceSettingForVariant(
+                settingsGroup, "v2", "color", "") !== "color05"
+              || !appearance.widgetUsesCustomAppearance(alias[0])
+              || !appearance.controller.resetGroupAppearance(settingsGroup)
+              || appearance.widgetUsesCustomAppearance(alias[0]))
+            return root.fail("Rise alias appearance did not persist/reset: "
+              + alias[0])
+        }
         panel.v2LayoutActive = false
         if (appearance.activeWidgetCount !== 12
-            || appearance.inactiveWidgetCount !== 6
+            || appearance.inactiveWidgetCount !== 9
             || !appearance.widgetDetailOpen
             || appearance.selectedWidgetActive)
           return root.fail("Icons did not preserve inactive detail across V1/V2")

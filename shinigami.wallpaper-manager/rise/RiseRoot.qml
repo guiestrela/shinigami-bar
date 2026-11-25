@@ -52,10 +52,6 @@ QtObject {
     if (host) host.toggle()
   }
 
-  function openWallpaperSettings() {
-    return host && host.openSettings()
-  }
-
   function showTooltip(owner, text) {
     if (host && host.bar && typeof host.bar.showTooltip === "function")
       host.bar.showTooltip(owner, text)

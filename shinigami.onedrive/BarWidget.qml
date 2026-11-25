@@ -6,7 +6,6 @@ import Quickshell.Wayland
 import qs.Commons as Commons
 import "../shinigami.state/lib/presentation" as Presentation
 import "rise/v1" as RiseV1
-import "rise/v2" as RiseV2
 import "components" as OneDriveComponents
 
 // Output-local OneDrive status presentation. The process-wide coordinator and
@@ -50,7 +49,7 @@ Item {
     ? String(coordinator.oneDriveOpenTarget || "") : ""
 
   visible: bar !== null && tokens !== null && oneDriveService !== null
-  implicitWidth: visible ? actionRow.implicitWidth + 2 * tokens.pillPaddingX : 0
+  implicitWidth: visible ? actionRow.implicitWidth : 0
   implicitHeight: visible ? bar.barSize : 0
 
   function showTip(owner, text) {
@@ -110,17 +109,6 @@ Item {
       bar.releasePopout(root)
   }
 
-  Presentation.PillSurface {
-    tokenSource: root.tokens
-    settings: root.settings
-    v1AppearanceEnabled: true
-    anchors.fill: parent
-    anchors.topMargin: root.bar && !root.bar.vertical
-      ? Math.round((parent.height - root.tokens.pillHeight) / 2) : 0
-    anchors.bottomMargin: anchors.topMargin
-    bar: root.bar
-  }
-
   Row {
     id: actionRow
     anchors.centerIn: parent
@@ -130,12 +118,10 @@ Item {
       root: oneDriveRoot
       contentColor: root.widgetInk
       showStatusBadge: root.tokens && root.tokens.v2Shell !== true
-      backgroundComponent: root.tokens && root.tokens.v2Shell === true
-        ? oneDrivePillV2 : oneDrivePillV1
+      backgroundComponent: root.tokens && (root.tokens.v2Shell === true
+        || (root.bar && root.bar.vertical)) ? null : oneDrivePillV1
     }
   }
-
-  Loader { id: oneDriveOverlayLoader }
 
   Component {
     id: oneDrivePillV1
@@ -150,16 +136,5 @@ Item {
     }
   }
 
-  Component {
-    id: oneDrivePillV2
-    Rectangle {
-      width: oneDriveWidget.width
-      height: root.oneDriveRoot.pillH
-      radius: root.oneDriveRoot.pillRadius
-      color: root.oneDriveRoot.pill
-      border.color: root.oneDriveRoot.pillBorder
-      border.width: root.oneDriveRoot.pillBorderW
-      RiseV2.PillShadow { theme: root.oneDriveRoot }
-    }
-  }
+  Loader { id: oneDriveOverlayLoader }
 }

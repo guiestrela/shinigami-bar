@@ -43,6 +43,12 @@ function eventDay(value) {
   return validDate(date) ? dayKey(date) : ""
 }
 
+function calendarColor(event) {
+  const color = typeof event === "object" && event !== null
+    ? String(event.calendar_color || "") : ""
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : ""
+}
+
 function eventsOn(events, day) {
   return events.filter(function(event) {
     const start = eventDay(event.start)

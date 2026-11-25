@@ -270,13 +270,96 @@ rg -Fq 'embed.resolveComponent("shinigami.center", "omarchy.system-update")' "$c
 if rg -U -q 'onLoaded: \{[^}]*root\.scheduleOfficialSync' "$center_widget"; then
   fail "loaded center children recursively reschedule their own loaders"
 fi
+rg -Fq 'tooltipText: ""' "$center_widget" \
+  || fail "date label still exposes a tooltip Rise does not show"
+
+rise_clock="$repo_root/shinigami.center/rise/components/ClockWidget.qml"
+rg -Fq 'font.pixelSize: 12' "$rise_clock" \
+  || fail "Rise clock lost its 12 px typography"
+rg -Fq 'font.letterSpacing: 1' "$rise_clock" \
+  || fail "Rise clock lost its letter spacing"
+rg -Fq 'days[now.getDay()] + ", " + now.getDate() + " " + months[now.getMonth()] + " " + now.getFullYear()' \
+  "$rise_clock" || fail "Rise clock tooltip text drifted"
+
+weather_widget="$repo_root/shinigami.center/WeatherWidget.qml"
+if rg -q 'text: root\.weatherService.*(temp|description|place)' "$weather_widget"; then
+  fail "weather bar icon is no longer glyph-only"
+fi
+rg -Fq 'font.pixelSize: 14' "$weather_widget" \
+  || fail "weather bar glyph lost its 14 px typography"
+for weather_tooltip in \
+  'Weather stale · ' \
+  'Weather offline' \
+  'Weather…' \
+  'weatherService.description ? " / " + weatherService.description : ""'; do
+  rg -Fq "$weather_tooltip" "$weather_widget" \
+    || fail "weather tooltip contract missing: $weather_tooltip"
+done
+
 calendar_panel="$repo_root/shinigami.center/CalendarPanel.qml"
+rg -Fq 'property Process agendaReader: Process {' "$calendar_panel" \
+  || fail "calendar agenda process is not an owned named property"
+rg -Fq 'contentWidth: fittedContentWidth(280)' "$calendar_panel" \
+  || fail "calendar popup lost its 280 px Rise width"
+rg -Fq 'centerOnBar: true' "$calendar_panel" \
+  || fail "calendar popup is no longer centered on the bar"
+rg -Fq 'model: ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]' "$calendar_panel" \
+  || fail "calendar weekdays are no longer Monday-first"
+rg -Fq 'agendaEvents.slice(0, 4)' "$calendar_panel" \
+  || fail "calendar agenda is no longer limited to four rows"
+rg -Fq 'selectedDay || displayDate.getDate()' "$calendar_panel" \
+  || fail "calendar agenda lost Rise's zero-means-today selection"
+rg -Fq '    monthOffset--' "$calendar_panel" \
+  || fail "calendar previous-month navigation still invents a selection"
+rg -Fq '    monthOffset++' "$calendar_panel" \
+  || fail "calendar next-month navigation still invents a selection"
+rg -Fq 'selectedDay = 0' "$calendar_panel" \
+  || fail "calendar reset no longer restores Rise's today state"
+rg -Fq 'panel.monthOffset === 0 && panel.selectedDay === modelData.day' "$calendar_panel" \
+  || fail "calendar selection ring escapes the current month"
+rg -Fq 'height: 18' "$calendar_panel" \
+  || fail "calendar agenda lost Rise's 18 px row height"
+rg -Fq 'CalendarModel.calendarColor(agendaRow.modelData)' "$calendar_panel" \
+  || fail "calendar agenda lost Rise's calendar color stripe"
+rg -Fq 'String(agendaRow.modelData.start || "").slice(11, 16)' "$calendar_panel" \
+  || fail "calendar agenda time column drifted from Rise"
+rg -Fq 'width: agendaRow.width - 88' "$calendar_panel" \
+  || fail "calendar agenda title column drifted from Rise"
+rg -Fq 'function calendarColor(event)' "$repo_root/shinigami.center/CalendarModel.js" \
+  || fail "calendar model lost Rise's event color helper"
 rg -q 'component CalendarAction: Rectangle' "$calendar_panel" \
   || fail "calendar navigation does not own its V1 action appearance"
 rg -q 'Presentation\.ShinigamiPillToolTip \{' "$calendar_panel" \
   || fail "calendar navigation bypasses the Shinigami tooltip"
 if rg -q 'Ui\.PanelActionButton' "$calendar_panel"; then
   fail "calendar navigation still uses the host tooltip appearance"
+fi
+
+weather_radar="$repo_root/shinigami.center/WeatherRadar.qml"
+rg -Fq 'RAINVIEWER RADAR · ESRI IMAGERY' "$weather_radar" \
+  || fail "weather panel lost Rise's radar heading"
+rg -Fq 'https://api.rainviewer.com/public/weather-maps.json' "$weather_radar" \
+  || fail "weather radar lost Rise's metadata endpoint"
+rg -Fq 'running: radar.tilesActive && radar.visible' "$weather_radar" \
+  || fail "weather radar metadata is not lazy while the panel is closed"
+rg -Fq 'tilesActive: !!panel && panel.open === true && located' "$weather_radar" \
+  || fail "weather radar lost its panel-open ownership gate"
+rg -Fq 'tilecache.rainviewer.com' "$weather_radar" \
+  || fail "weather radar lost Rise's validated tile host"
+rg -Fq 'World_Imagery/MapServer/tile/' "$weather_radar" \
+  || fail "weather radar lost Rise's imagery source"
+rg -Fq 'model: radar.tilesActive ? 9 : 0' "$weather_radar" \
+  || fail "weather radar tiles are not lazy"
+rg -Fq 'Weather location is unavailable' "$weather_radar" \
+  || fail "weather radar lost its no-location state"
+rg -Fq 'WeatherRadar {' "$weather_panel" \
+  || fail "weather panel does not embed the Rise-parity radar"
+rg -Fq 'hostPanel: panel' "$weather_panel" \
+  || fail "weather radar is not owned by the weather panel"
+rg -Fq 'fittedContentHeight(contentColumn.implicitHeight,' "$weather_panel" \
+  || fail "weather panel lost its viewport fit"
+if rg -U -q 'fittedContentHeight\(contentColumn\.implicitHeight,\s*520\)' "$weather_panel"; then
+  fail "weather panel still clips the embedded radar"
 fi
 
 printf 'center plugin regression passed\n'

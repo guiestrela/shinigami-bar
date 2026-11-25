@@ -68,9 +68,20 @@ Item {
     readonly property bool passwordlessAvailable: !!widgetRoot.statusService && widgetRoot.statusService.passwordlessSudoAvailable === true
     readonly property bool reminders: !!widgetRoot.statusService && widgetRoot.statusService.reminderCount > 0
     readonly property bool remindersAvailable: !!widgetRoot.statusService && widgetRoot.statusService.remindersAvailable === true
-    readonly property string reminderLabel: reminders ? widgetRoot.statusService.reminderTooltip : "Set a reminder"
+    readonly property string reminderLabel: reminders && widgetRoot.statusService.reminderTooltip
+      ? widgetRoot.statusService.reminderTooltip : "Set a reminder"
+    readonly property bool idleAvailable: !!widgetRoot.statusService && widgetRoot.statusService.idleAvailable === true
+    readonly property bool notificationsAvailable: !!widgetRoot.statusService && widgetRoot.statusService.notificationsAvailable === true
     readonly property bool hasActive: recording || silenced || awake || voxtype || nightLight || remote
       || passwordless || reminders
+
+    function runFallback(service, command) {
+      if (!service || typeof service.launch !== "function") return false
+      const launched = service.launch(command) !== false
+      if (launched && typeof service.refreshIndicators === "function")
+        Qt.callLater(service.refreshIndicators)
+      return launched
+    }
 
     function activate(id, button) {
       const service = widgetRoot.statusService
@@ -81,7 +92,9 @@ Item {
         case "Reminder": return service.openReminder()
         case "PasswordlessSudo": return service.openPasswordlessSudo()
         case "Dnd": return service.toggleNotifications()
+          || runFallback(service, ["omarchy-toggle-notification-silencing"])
         case "StayAwake": return service.toggleStayAwake()
+          || runFallback(service, ["omarchy-toggle-idle"])
         case "Voxtype": return button === Qt.RightButton
           ? service.openVoxtypeConfig() : service.openVoxtypeModel()
       }

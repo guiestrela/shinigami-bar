@@ -51,7 +51,7 @@ ShinigamiPanel {
   padding: 12
   contentWidth: fittedContentWidth(300)
   contentHeight: fittedContentHeight(contentColumn.implicitHeight,
-    520)
+    780)
 
   function closePanel() {
     if (savingLocation) return
@@ -817,6 +817,21 @@ ShinigamiPanel {
         width: parent.width
         height: 1
         visible: forecastColumn.visible
+        color: panel.dividerColor
+      }
+
+      WeatherRadar {
+        width: parent.width
+        hostPanel: panel
+        latitude: panel.weatherService && panel.weatherService.configuredLocation
+          ? parseFloat(String(panel.weatherService.configuredLocation.latitude)) : NaN
+        longitude: panel.weatherService && panel.weatherService.configuredLocation
+          ? parseFloat(String(panel.weatherService.configuredLocation.longitude)) : NaN
+      }
+
+      Rectangle {
+        width: parent.width
+        height: 1
         color: panel.dividerColor
       }
 

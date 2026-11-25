@@ -11,7 +11,7 @@ Item {
     implicitWidth: control.root.modWallpapers ? 36 : 0
     implicitHeight: 28
     readonly property color contentColor: root.widgetContentColor("G20", root.widgetIconColor)
-    readonly property string tooltipText: "Wallpaper manager · click to open · middle-click for next on all displays · right-click for settings"
+    readonly property string tooltipText: "Wallpaper manager · click to open · middle-click for next on all displays"
     function handleButton(button) { return WallpaperManagerQuickWidgetLogic.handleButton(control, {tip: tip, Qt: Qt}, button) }
 
     CommonComponents.IconText {
@@ -29,7 +29,7 @@ Item {
         anchors.fill: parent
         hoverEnabled: true
         enabled: !control.root.barUnlocked
-        acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.MiddleButton
         cursorShape: Qt.PointingHandCursor
         onEntered: tip.show()
         onExited: tip.hide()

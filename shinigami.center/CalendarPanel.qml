@@ -23,7 +23,8 @@ ShinigamiPanel {
   readonly property date displayedMonth: CalendarModel.monthDate(displayDate, monthOffset)
   readonly property string monthStart: CalendarModel.dayKey(displayedMonth)
   readonly property string agendaDay: CalendarModel.dayKey(
-    new Date(displayedMonth.getFullYear(), displayedMonth.getMonth(), Math.max(1, selectedDay)))
+    new Date(displayedMonth.getFullYear(), displayedMonth.getMonth(),
+      selectedDay || displayDate.getDate()))
   readonly property var agendaEvents: loadedMonth === monthStart
     ? CalendarModel.eventsOn(events, agendaDay) : []
   property var events: []
@@ -45,16 +46,14 @@ ShinigamiPanel {
   contentHeight: fittedContentHeight(content.implicitHeight)
 
   function previousMonth() {
-    selectedDay = 1
     monthOffset--
   }
   function nextMonth() {
-    selectedDay = 1
     monthOffset++
   }
   function resetToToday() {
     monthOffset = 0
-    selectedDay = displayDate.getDate()
+    selectedDay = 0
   }
 
   function refreshAgenda() {
@@ -76,7 +75,7 @@ ShinigamiPanel {
   }
   onMonthStartChanged: if (open) refreshAgenda()
 
-  Process {
+  property Process agendaReader: Process {
     id: agendaProcess
     property string requestedMonth: ""
     stdout: StdioCollector { id: agendaOutput; waitForEnd: true }
@@ -205,7 +204,7 @@ ShinigamiPanel {
             readonly property bool hasDay: modelData.day > 0
             readonly property bool today: modelData.today === true
             readonly property bool selected: hasDay && !today
-              && panel.selectedDay === modelData.day
+              && panel.monthOffset === 0 && panel.selectedDay === modelData.day
             readonly property string dateKey: hasDay ? CalendarModel.dayKey(new Date(
               panel.displayedMonth.getFullYear(), panel.displayedMonth.getMonth(), modelData.day)) : ""
             readonly property bool weekend: index % 7 >= 5
@@ -272,7 +271,7 @@ ShinigamiPanel {
 
       Item {
         width: parent.width
-        height: 24
+        height: 18
 
         Text {
           anchors.left: parent.left
@@ -304,20 +303,34 @@ ShinigamiPanel {
             id: agendaRow
             required property var modelData
             width: parent.width
+            height: 18
             spacing: 6
 
-            Text {
-              width: 48
-              text: agendaRow.modelData.all_day ? "ALL DAY"
-                : Qt.formatTime(new Date(agendaRow.modelData.start), "HH:mm")
-              color: panel.controlAccent
-              font.family: panel.bar ? panel.bar.fontFamily : Commons.Style.font.family
-              font.pixelSize: 9
+            Rectangle {
+              anchors.verticalCenter: parent.verticalCenter
+              width: 3
+              height: 12
+              radius: 2
+              color: CalendarModel.calendarColor(agendaRow.modelData)
+                || panel.controlAccent
             }
 
             Text {
-              width: agendaRow.width - 54
-              text: agendaRow.modelData.title
+              width: 46
+              height: parent.height
+              verticalAlignment: Text.AlignVCenter
+              text: agendaRow.modelData.all_day ? "ALL DAY"
+                : String(agendaRow.modelData.start || "").slice(11, 16)
+              color: panel.controlAccent
+              font.family: panel.bar ? panel.bar.fontFamily : Commons.Style.font.family
+              font.pixelSize: 8
+            }
+
+            Text {
+              width: agendaRow.width - 88
+              height: parent.height
+              verticalAlignment: Text.AlignVCenter
+              text: String(agendaRow.modelData.title || "Untitled event")
               textFormat: Text.PlainText
               elide: Text.ElideRight
               color: panel.controlForeground

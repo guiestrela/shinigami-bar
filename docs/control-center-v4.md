@@ -381,6 +381,14 @@ such as display mode, surface, color, content tone, shape, spacing, opacity,
 and outline width are edited here. Generation-specific layout controls remain
 under Bars and are never offered through a second cross-style editor.
 
+Rise-style G20 (Wallpapers), G22 (OneDrive), and G23 (Indicators) appear in the
+Icons catalog as appearance aliases. Their settings are persisted under
+`G:<plugin-id>`, activation still belongs to `setPluginBarWidgetEnabled()`, and
+native layout groups remain G1-G18. In V2 the Icons editor offers the same mode
+choices as Rise: wallpaper and indicator tiles expose only Icon + text, while
+OneDrive also allows Icon. These are persisted appearance settings; the
+standalone widgets keep their established rendering.
+
 ## Workspaces and pickers
 
 Workspace navigation and picker presentation are first-class Configure routes,

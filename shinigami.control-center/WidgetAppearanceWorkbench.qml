@@ -39,6 +39,20 @@ Column {
   readonly property var v1CompactValueGroupIds: [
     "G4", "G5", "G6", "G12", "G13"
   ]
+  readonly property var riseFullModeOptions: [
+    { value: "full", label: "Icon + text" }
+  ]
+  readonly property var riseCompactModeOptions: [
+    { value: "icon", label: "Icon" },
+    { value: "full", label: "Icon + text" }
+  ]
+  // Rise-style catalog aliases. They are appearance/config surfaces only;
+  // native layout groups stay G1-G18 and settings stay under G:<plugin-id>.
+  readonly property var catalogOnlyGroupPluginIds: ({
+    G20: "shinigami.wallpaper-manager",
+    G22: "shinigami.onedrive",
+    G23: "shinigami.indicators"
+  })
   readonly property var colorOptions: [
     { value: "inherit", label: "Auto" },
     { value: "color01", label: "01" },
@@ -201,6 +215,11 @@ Column {
   function pluginIdForGroup(groupValue) {
     const plugin = pluginForGroup(groupValue)
     if (plugin) return String(plugin.id || "")
+    const group = String(groupValue || "")
+    if (Object.prototype.hasOwnProperty.call(
+        catalogOnlyGroupPluginIds, group))
+      return String(catalogOnlyGroupPluginIds[group] || "")
+    if (group.indexOf("G:") === 0) return group.slice(2)
     const ids = {
       G1: "shinigami.control-center",
       G2: "shinigami.workspaces",
@@ -224,15 +243,29 @@ Column {
     return String(ids[String(groupValue || "")] || "")
   }
 
+  function catalogAliasForPluginId(pluginId) {
+    const id = String(pluginId || "")
+    for (const group in catalogOnlyGroupPluginIds) {
+      if (String(catalogOnlyGroupPluginIds[group] || "") === id)
+        return String(group)
+    }
+    return ""
+  }
+
   function catalogGroupForActiveGroup(groupValue) {
     const group = String(groupValue || "")
     if (catalogOptionForGroup(group)) return group
     if (group.indexOf("G:") !== 0) return ""
+    const alias = catalogAliasForPluginId(group.slice(2))
+    if (alias !== "") return alias
     return String(controller.shinigamiWidgetGroup(group.slice(2)) || "")
   }
 
   function settingsGroupForCatalogGroup(groupValue) {
     const group = String(groupValue || "")
+    if (Object.prototype.hasOwnProperty.call(
+        catalogOnlyGroupPluginIds, group))
+      return "G:" + String(catalogOnlyGroupPluginIds[group] || "")
     if (controller.v2LayoutActive === true
         || activeGroupIds.indexOf(group) >= 0)
       return group
@@ -261,7 +294,8 @@ Column {
       "G9", "G10", "G11",
       "G12", "G13", "G15",
       "G4", "G8", "G14",
-      "G16", "G17", "G18"
+      "G16", "G17", "G18",
+      "G20", "G22", "G23"
     ]
     const rank = order.indexOf(String(groupValue || ""))
     return rank >= 0 ? rank : order.length
@@ -456,6 +490,8 @@ Column {
   function catalogGroupForSettingsGroup(groupValue) {
     const group = String(groupValue || "")
     if (group.indexOf("G:") !== 0) return group
+    const alias = catalogAliasForPluginId(group.slice(2))
+    if (alias !== "") return alias
     return String(controller.shinigamiWidgetGroup(group.slice(2)) || group)
   }
 
@@ -465,6 +501,9 @@ Column {
     if (controller.v2LayoutActive === true) {
       if (catalogGroup === "G1") return []
       if (catalogGroup === "G9") return mediaStyleOptions
+      if (catalogGroup === "G20" || catalogGroup === "G23")
+        return riseFullModeOptions
+      if (catalogGroup === "G22") return riseCompactModeOptions
       return displayModeOptions
     }
     const options = catalogGroup === "G9" ? mediaStyleOptions.slice() : [

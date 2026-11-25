@@ -29,6 +29,8 @@ Item {
   readonly property var remoteSessionService: suiteShell.firstPartyServiceFor("omarchy.remote-session")
   readonly property var notificationService: notificationAdapter.available
     ? notificationAdapter : null
+  readonly property bool idleAvailable: !!idleService
+  readonly property bool notificationsAvailable: notificationAdapter.available
   readonly property bool stayAwake: idleService
     ? idleService.stayAwake === true : false
   readonly property bool notificationsSilenced: notificationService
@@ -68,11 +70,12 @@ Item {
   property int reminderCount: 0
   property bool remindersAvailable: false
   property string reminderTooltip: ""
-
   function refreshIndicators() {
     if (!runtimeProbesEnabled) return
     sudoStatus.running = true
     reminderStatus.running = true
+    if (remoteSessionService && typeof remoteSessionService.refresh === "function")
+      remoteSessionService.refresh()
   }
 
   function openReminder() {
