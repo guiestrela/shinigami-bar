@@ -27,6 +27,11 @@ Quick Access exposes themes, idle inhibition, and the screenshots and videos
 pickers. Center owns the clock, calendar, weather, and update presentation.
 The suite profile declares 27 plugin roots.
 
+The calendar follows Rise's Monday-first 42-cell month grid, selection
+semantics, and four-row agenda cap. Google setup/pull/push and event
+create/delete controls are not ported, so `DEL` stays unmapped until a deletion
+owner exists. Credential-backed calendar sync is outside the parity claim.
+
 The OneDrive notification target `io.github.salemsayed.omaonedrive` belongs to
 the process-wide OneDrive service. Notification clicks route to the widget on
 the target output. Display and wallpaper actions use the existing Omarchy
