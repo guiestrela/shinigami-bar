@@ -445,14 +445,15 @@ Ui.Panel {
       font.pixelSize: root.iconSize(root.launcherConfig.icon)
     }
 
-    Image {
+    ShinigamiGlyph {
+      objectName: "launcher-shinigami-glyph"
       visible: root.stockOmarchyHost
         || root.launcherConfig.icon === "shinigami"
       anchors.centerIn: parent
-      width: 18
-      height: 18
-      source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
-      fillMode: Image.PreserveAspectFit
+      anchors.horizontalCenterOffset: root.iconXOffset("shinigami")
+      anchors.verticalCenterOffset: root.iconYOffset("shinigami")
+      size: root.iconSize("shinigami")
+      ink: root.widgetInk
     }
   }
 

@@ -550,13 +550,11 @@ Item {
       fontFamily: root.controller.marketFont
     }
 
-    Image {
+    ShinigamiGlyph {
       visible: compactLogoCard.iconMode
       anchors.centerIn: parent
-      width: 26
-      height: 26
-      source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
-      fillMode: Image.PreserveAspectFit
+      size: 26
+      ink: root.foreground
     }
   }
 
@@ -922,12 +920,10 @@ Item {
       border.width: root.controller.controlBorderWidth
       border.color: root.controller.controlBorderColor
 
-      Image {
+      ShinigamiGlyph {
         anchors.centerIn: parent
-        width: 30
-        height: 30
-        source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
-        fillMode: Image.PreserveAspectFit
+        size: 30
+        ink: root.foreground
       }
     }
   }

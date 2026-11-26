@@ -59,13 +59,11 @@ ShellRoot {
     throw new Error(message)
   }
 
-  function launcherDirectImages(widget) {
+  function launcherShinigamiGlyphs(widget) {
     const logos = []
     const visit = function(item) {
       if (!item) return
-      if (item.width === 18 && item.height === 18
-          && item.fillMode === Image.PreserveAspectFit
-          && String(item.source).indexOf("shinigami-shell-transparente.svg") >= 0)
+      if (item.objectName === "launcher-shinigami-glyph")
         logos.push(item)
       const children = item.children || []
       for (let index = 0; index < children.length; index++)
@@ -787,24 +785,25 @@ ShellRoot {
         panel.v2LayoutActive = false
         if (!panel.setLauncherSelection("icon", "shinigami"))
           return root.fail("V1 Launcher direct SVG fixture was rejected")
-        const launcherLogos = root.launcherDirectImages(widget)
+        const launcherLogos = root.launcherShinigamiGlyphs(widget)
         let visibleLauncherLogo = launcherLogos.find(item => item.visible)
         if (!widget.iconMode || widget.v1CustomFill || launcherLogos.length !== 1
             || !visibleLauncherLogo
-            || visibleLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || visibleLauncherLogo.width !== widget.iconSize("shinigami")
+            || String(visibleLauncherLogo.ink) !== String(widget.widgetInk)
             || String(visibleLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
-          return root.fail("no-fill Shinigami launcher must use the supplied SVG directly"
+          return root.fail("no-fill Shinigami launcher must use the shared icon size and ink"
             + " logos=" + launcherLogos.length
             + " source=" + (visibleLauncherLogo ? visibleLauncherLogo.source : "missing"))
-        console.log("LAUNCHER_DIRECT_SVG no-fill-shinigami"
+        console.log("LAUNCHER_STYLE_PARITY no-fill-shinigami"
           + " source=" + visibleLauncherLogo.source
-          + " fillMode=" + visibleLauncherLogo.fillMode)
+          + " ink=" + visibleLauncherLogo.ink)
         scopedStockBar.visualTokens = fakeBar.visualTokens
         const stockLauncherWidget = stockLauncherWidgetComponent
           .createObject(testWindow)
         if (!stockLauncherWidget)
           return root.fail("stock Omarchy launcher probe did not instantiate")
-        const stockLauncherLogos = root.launcherDirectImages(stockLauncherWidget)
+        const stockLauncherLogos = root.launcherShinigamiGlyphs(stockLauncherWidget)
         const stockLauncherLogo = stockLauncherLogos.length > 0
           ? stockLauncherLogos[0] : null
         if (!stockLauncherWidget.stockOmarchyHost
@@ -812,12 +811,13 @@ ShellRoot {
             || stockLauncherWidget.v1CustomFill
             || stockLauncherLogos.length !== 1
             || !stockLauncherLogo
-            || stockLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || stockLauncherLogo.width !== stockLauncherWidget.iconSize("shinigami")
+            || String(stockLauncherLogo.ink) !== String(stockLauncherWidget.widgetInk)
             || String(stockLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
-          return root.fail("stock Omarchy launcher must use the supplied SVG directly")
-        console.log("LAUNCHER_DIRECT_SVG stock-omarchy"
+          return root.fail("stock Omarchy launcher must use the shared icon size and ink")
+        console.log("LAUNCHER_STYLE_PARITY stock-omarchy"
           + " source=" + stockLauncherLogo.source
-          + " fillMode=" + stockLauncherLogo.fillMode)
+          + " ink=" + stockLauncherLogo.ink)
         stockLauncherWidget.destroy()
         scopedStockBar.visualTokens = null
         if (!appearance.controller.setGroupSetting("G1", "color", "color05")
@@ -835,12 +835,13 @@ ShellRoot {
           return root.fail("V1 Launcher appearance was not isolated")
         visibleLauncherLogo = launcherLogos.find(item => item.visible)
         if (!visibleLauncherLogo || launcherLogos.length !== 1
-            || visibleLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || visibleLauncherLogo.width !== widget.iconSize("shinigami")
+            || String(visibleLauncherLogo.ink) !== String(widget.widgetInk)
             || String(visibleLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
-          return root.fail("custom-fill launcher must keep the supplied SVG unmodified")
-        console.log("LAUNCHER_DIRECT_SVG custom-fill"
+          return root.fail("custom-fill launcher must use the custom widget ink")
+        console.log("LAUNCHER_STYLE_PARITY custom-fill"
           + " source=" + visibleLauncherLogo.source
-          + " fillMode=" + visibleLauncherLogo.fillMode)
+          + " ink=" + visibleLauncherLogo.ink)
         if (!appearance.controller.resetGroupAppearance("G1"))
           return root.fail("V1 Launcher appearance reset was rejected")
         widget.settings = stateService.groupSettingsForVariant("G1", "v1")

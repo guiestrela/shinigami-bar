@@ -174,34 +174,18 @@ rg -Fq 'onClicked: function(mouse) { root.triggerPress(mouse.button) }' \
   || fail "shared Shinigami logo source asset is missing"
 [[ -f $control_dir/assets/shinigami-shell-transparente.svg ]] \
   || fail "supplied transparent Shinigami SVG is missing"
-for direct_logo_contract in \
-  'BarWidget.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  'BarWidget.qml:fillMode: Image.PreserveAspectFit' \
-  'BarWidget.qml:width: 18' \
-  'BarWidget.qml:height: 18' \
-  'LogoSettingsPage.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  'LogoSettingsPage.qml:fillMode: Image.PreserveAspectFit' \
-  'SemanticPreviewImage.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  'SemanticPreviewImage.qml:fillMode: Image.PreserveAspectFit'; do
-  file=${direct_logo_contract%%:*}
-  label=${direct_logo_contract#*:}
+for logo_style_contract in \
+  'ShinigamiGlyph.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
+  'BarWidget.qml:size: root.iconSize("shinigami")' \
+  'BarWidget.qml:ink: root.widgetInk' \
+  'LogoSettingsPage.qml:size: Commons.Style.font.iconLarge * root.uiScale' \
+  'LogoSettingsPage.qml:ink: root.foreground' \
+  'SemanticPreviewImage.qml:ink: root.foreground'; do
+  file=${logo_style_contract%%:*}
+  label=${logo_style_contract#*:}
   rg -Fq "$label" "$control_dir/$file" \
-    || fail "direct Shinigami SVG rendering contract drifted: $label"
+    || fail "Shinigami logo styling drifted: $label"
 done
-for logo_view in BarWidget.qml LogoSettingsPage.qml SemanticPreviewImage.qml; do
-  if rg -Fq 'ThemeShinigamiLogo {' "$control_dir/$logo_view"; then
-    fail "$logo_view must render the supplied SVG directly, without themed masks"
-  fi
-done
-[[ $(rg -F -c 'source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  "$control_dir/BarWidget.qml") -eq 1 ]] \
-  || fail "launcher must bind one direct transparent SVG image"
-[[ $(rg -F -c 'source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  "$control_dir/LogoSettingsPage.qml") -eq 2 ]] \
-  || fail "Logo route must bind both direct Shinigami SVG previews"
-[[ $(rg -F -c 'source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  "$control_dir/SemanticPreviewImage.qml") -eq 2 ]] \
-  || fail "semantic Logo previews must bind the direct Shinigami SVG"
 ! rg -Fq 'Presentation.BarGlyph {' "$control_dir/BarWidget.qml" \
   || fail "launcher logos must bypass the shared symbol mapper"
 rg -Fq 'width: root.stockOmarchyHost ? 18 : 16' \
@@ -532,8 +516,8 @@ for configure_preview_contract in \
     'SemanticPreviewImage.qml:property bool compact: false' \
     'PageMotionStage.qml:compact: true' \
     'SemanticPreviewImage.qml:visible: root.semanticRoute === "logo"' \
-    'SemanticPreviewImage.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-    'SemanticPreviewImage.qml:fillMode: Image.PreserveAspectFit' \
+    'SemanticPreviewImage.qml:ShinigamiGlyph {' \
+    'SemanticPreviewImage.qml:ink: root.foreground' \
     'PluginProviderSummary.qml:iconSource: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")' \
     'ConfigureLandingPage.qml:property int lastPreviewIndex: 0' \
     'ConfigureLandingPage.qml:previewDetail: previewDetails[page.id] || "Settings preview"' \
@@ -768,8 +752,8 @@ for preview_contract in \
 done
 for logo_contract in \
   'LogoSettingsPage.qml:WordmarkPreview {' \
-  'LogoSettingsPage.qml:source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")' \
-  'LogoSettingsPage.qml:fillMode: Image.PreserveAspectFit' \
+  'LogoSettingsPage.qml:ShinigamiGlyph {' \
+  'LogoSettingsPage.qml:ink: root.foreground' \
   'ControlCenterPanel.qml:"shinigami", "omarchy", "hyprland"' \
   'BarWidget.qml:root.launcherConfig.icon !== "shinigami"' \
   'WordmarkPreview.qml:Qt.resolvedUrl("assets/bob2.png")' \

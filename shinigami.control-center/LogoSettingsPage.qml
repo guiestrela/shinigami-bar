@@ -91,16 +91,14 @@ Column {
           fontFamily: root.controller.marketFont
         }
 
-        Image {
+        ShinigamiGlyph {
           visible: modeCard.modelData.value === "icon"
             && root.controller.launcherConfig.icon === "shinigami"
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.top: parent.top
-          anchors.topMargin: Commons.Style.space(5)
-          width: Commons.Style.space(22)
-          height: width
-          source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
-          fillMode: Image.PreserveAspectFit
+          anchors.topMargin: Commons.Style.space(6)
+          size: Commons.Style.font.iconLarge * root.uiScale
+          ink: root.foreground
         }
 
         Text {
@@ -184,16 +182,14 @@ Column {
           fontFamily: root.controller.marketFont
         }
 
-        Image {
+        ShinigamiGlyph {
           visible: root.activeMode === "icon"
             && optionCard.modelData === "shinigami"
           anchors.horizontalCenter: parent.horizontalCenter
           anchors.top: parent.top
-          anchors.topMargin: Commons.Style.space(4)
-          width: Commons.Style.space(23)
-          height: width
-          source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
-          fillMode: Image.PreserveAspectFit
+          anchors.topMargin: Commons.Style.space(6)
+          size: Commons.Style.font.iconLarge * root.uiScale
+          ink: root.foreground
         }
 
         Text {
