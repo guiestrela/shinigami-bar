@@ -447,22 +447,17 @@ Ui.Panel {
       font.pixelSize: root.iconSize(root.launcherConfig.icon)
     }
 
-    Image {
+    ThemeShinigamiLogo {
       visible: root.stockOmarchyHost
         || (root.launcherConfig.icon === "shinigami" && !root.v1CustomFill)
       anchors.centerIn: parent
       width: 18
       height: 18
-      source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")
-      fillMode: Image.PreserveAspectFit
-      sourceSize.width: 24
-      sourceSize.height: 24
-      smooth: true
-      mipmap: true
+      accent: root.tokens.seal
+      ink: root.bar ? root.bar.foreground : root.widgetInk
     }
 
-    // The multicolor mark must bypass the alpha-only tint shader.
-    Image {
+    ThemeShinigamiLogo {
       id: v1TintedLauncherIcon
       visible: !root.stockOmarchyHost
         && root.launcherConfig.icon === "shinigami"
@@ -470,12 +465,8 @@ Ui.Panel {
       anchors.centerIn: parent
       width: 18
       height: 18
-      source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")
-      fillMode: Image.PreserveAspectFit
-      sourceSize.width: 24
-      sourceSize.height: 24
-      smooth: true
-      mipmap: true
+      accent: root.tokens.seal
+      ink: root.widgetInk
     }
   }
 

@@ -18,6 +18,15 @@ ShellRoot {
   property var healthFitProbe: null
   property bool healthFitOk: true
   Component { id: healthFitComponent; Control.ControlCenterPanel {} }
+  Component {
+    id: stockLauncherWidgetComponent
+    Control.BarWidget {
+      visible: false
+      bar: scopedStockBar
+      panelSource: Qt.resolvedUrl("fixtures/ControlCenterTestPanel.qml")
+      pluginUpdateServiceOverride: root.selectedUpdateService
+    }
+  }
   property bool panelIdempotenceStarted: false
   property bool requestedPreviewChecked: false
   property var stablePanelItem: null
@@ -33,6 +42,10 @@ ShellRoot {
   property int quickBarIdentityStep: 0
   property var quickBarDelegatesBefore: []
   property var quickBarPointersBefore: []
+  property int pluginCardsStep: 0
+  property bool pluginCardsCaptureRequested: false
+  property bool pluginCardsCaptureComplete: false
+  property string pluginCardsCaptureError: ""
 
   Control.PluginUpdateTestService { id: pluginUpdateService }
   Control.PluginUpdateTestService { id: replacementUpdateService }
@@ -44,6 +57,75 @@ ShellRoot {
     console.error("control-center-smoke:", message)
     Qt.exit(1)
     throw new Error(message)
+  }
+
+  function launcherThemeLogos(widget) {
+    const logos = []
+    const visit = function(item) {
+      if (!item) return
+      if (item.width === 18 && item.height === 18
+          && item.ready !== undefined && item.accent !== undefined
+          && item.ink !== undefined)
+        logos.push(item)
+      const children = item.children || []
+      for (let index = 0; index < children.length; index++)
+        visit(children[index])
+    }
+    visit(widget)
+    return logos
+  }
+
+  function pluginCardManifests() {
+    const encoded = Quickshell.env("SHINIGAMI_PLUGIN_CARD_FIXTURE")
+    if (encoded !== "") {
+      try {
+        const parsed = JSON.parse(encoded)
+        if (Array.isArray(parsed) && parsed.length === 2) return parsed
+      } catch (error) {
+        return []
+      }
+    }
+    return [
+      {
+        id: "shinigami.onedrive",
+        name: "Shinigami OneDrive",
+        kinds: ["bar-widget", "service"],
+        "x-shinigami": { suiteId: "hancore.shibumi" },
+        barWidget: {
+          displayName: "Shinigami OneDrive",
+          defaultSection: "right", category: "Utilities"
+        }
+      },
+      {
+        id: "shinigami.wallpaper-manager",
+        name: "Shinigami Wallpapers",
+        kinds: ["bar-widget", "service"],
+        "x-shinigami": { suiteId: "hancore.shibumi" },
+        barWidget: {
+          displayName: "Wallpapers",
+          defaultSection: "right", category: "Appearance"
+        }
+      }
+    ]
+  }
+
+  function collectPluginCardTiles(item, result) {
+    if (!item) return
+    if (typeof item.glyph === "string" && typeof item.label === "string"
+        && item.controller !== undefined)
+      result.push(item)
+    const children = item.children || []
+    for (let index = 0; index < children.length; index++)
+      collectPluginCardTiles(children[index], result)
+  }
+
+  function hasPluginCardTitle(item, title) {
+    if (!item || item.visible !== true || item.enabled === false) return false
+    if (item.text !== undefined && String(item.text) === title) return true
+    const children = item.children || []
+    for (let index = 0; index < children.length; index++)
+      if (hasPluginCardTitle(children[index], title)) return true
+    return false
   }
 
   function healthCheck(id, status, owner, label, value, detail) {
@@ -119,6 +201,7 @@ ShellRoot {
     id: fakeBar
 
     property var shell: fakeShell
+    property var pluginRegistry: null
     property var layoutController: ({v2Mode: false})
     property bool vertical: false
     property int barSize: 35
@@ -194,6 +277,10 @@ ShellRoot {
     }
     function switchPanelFrom(_owner, _direction) { return false }
     function targetBelongsToWindow(_target, _window) { return true }
+    function isStandaloneSuiteWidget(pluginId) {
+      return ["shinigami.onedrive", "shinigami.wallpaper-manager"]
+        .indexOf(String(pluginId || "")) >= 0
+    }
 
     function scheduleOpenControlCenterRestores(page, needsReplacement,
         owner, screenName) {
@@ -285,6 +372,7 @@ ShellRoot {
     property string position: "top"
     property string fontFamily: "monospace"
     property color foreground: "#eeeeee"
+    property var visualTokens: null
     property color barForeground: foreground
     property color background: "#111111"
     property color urgent: "#d75f5f"
@@ -699,6 +787,48 @@ ShellRoot {
         panel.v2LayoutActive = false
         if (!panel.setLauncherSelection("icon", "shinigami"))
           return root.fail("V1 Launcher tint fixture was rejected")
+        const launcherLogos = root.launcherThemeLogos(widget)
+        let visibleLauncherLogo = launcherLogos.find(item => item.visible)
+        if (!widget.iconMode || widget.v1CustomFill || launcherLogos.length !== 2
+            || !visibleLauncherLogo
+            || !Qt.colorEqual(visibleLauncherLogo.accent,
+              fakeBar.visualTokens.seal)
+            || !Qt.colorEqual(visibleLauncherLogo.ink, fakeBar.foreground))
+          return root.fail("no-fill Shinigami launcher must bind accent and host foreground"
+            + " logos=" + launcherLogos.length
+            + " ink=" + (visibleLauncherLogo ? visibleLauncherLogo.ink : "missing")
+            + " foreground=" + fakeBar.foreground
+            + " accent=" + (visibleLauncherLogo ? visibleLauncherLogo.accent : "missing"))
+        console.log("LAUNCHER_LOGO_INK no-fill-shinigami"
+          + " accent=" + visibleLauncherLogo.accent
+          + " foreground=" + fakeBar.foreground
+          + " ink=" + visibleLauncherLogo.ink)
+        scopedStockBar.visualTokens = fakeBar.visualTokens
+        const stockLauncherWidget = stockLauncherWidgetComponent
+          .createObject(testWindow)
+        if (!stockLauncherWidget)
+          return root.fail("stock Omarchy launcher probe did not instantiate")
+        const stockLauncherLogos = root.launcherThemeLogos(stockLauncherWidget)
+        const stockLauncherLogo = stockLauncherLogos.find(item =>
+          Qt.colorEqual(item.ink, scopedStockBar.foreground))
+        if (!stockLauncherWidget.stockOmarchyHost
+            || !stockLauncherWidget.iconMode
+            || stockLauncherWidget.v1CustomFill
+            || stockLauncherLogos.length !== 2
+            || !stockLauncherLogo
+            || !Qt.colorEqual(stockLauncherLogo.accent,
+              fakeBar.visualTokens.seal)
+            || !Qt.colorEqual(stockLauncherLogo.ink,
+              scopedStockBar.foreground))
+          return root.fail("stock Omarchy launcher must bind accent and host foreground"
+            + " ink=" + (stockLauncherLogo ? stockLauncherLogo.ink : "missing")
+            + " foreground=" + scopedStockBar.foreground)
+        console.log("LAUNCHER_LOGO_INK stock-omarchy"
+          + " accent=" + stockLauncherLogo.accent
+          + " foreground=" + scopedStockBar.foreground
+          + " ink=" + stockLauncherLogo.ink)
+        stockLauncherWidget.destroy()
+        scopedStockBar.visualTokens = null
         if (!appearance.controller.setGroupSetting("G1", "color", "color05")
             || !appearance.controller.setGroupSetting(
               "G1", "tone", "background")
@@ -713,6 +843,21 @@ ShellRoot {
             || stateService.groupAppearanceSettingForVariant(
               "G1", "v2", "color", "inherit") !== "inherit")
           return root.fail("V1 Launcher appearance was not isolated")
+        visibleLauncherLogo = launcherLogos.find(item => item.visible)
+        if (!visibleLauncherLogo
+            || !Qt.colorEqual(visibleLauncherLogo.accent,
+              fakeBar.visualTokens.seal)
+            || !Qt.colorEqual(visibleLauncherLogo.ink, widget.widgetInk)
+            || Qt.colorEqual(visibleLauncherLogo.ink, fakeBar.foreground))
+          return root.fail("custom-fill launcher must preserve widget contrast ink"
+            + " ink=" + (visibleLauncherLogo ? visibleLauncherLogo.ink : "missing")
+            + " widgetInk=" + widget.widgetInk
+            + " foreground=" + fakeBar.foreground)
+        console.log("LAUNCHER_LOGO_INK custom-fill"
+          + " accent=" + visibleLauncherLogo.accent
+          + " foreground=" + fakeBar.foreground
+          + " widgetInk=" + widget.widgetInk
+          + " ink=" + visibleLauncherLogo.ink)
         if (!appearance.controller.resetGroupAppearance("G1"))
           return root.fail("V1 Launcher appearance reset was rejected")
         widget.settings = stateService.groupSettingsForVariant("G1", "v1")
@@ -2382,18 +2527,138 @@ ShellRoot {
           fakeBar.visualTokens = Object.assign({}, fakeBar.visualTokens, {v2Shell: true, shellStyle: "full"})
           root.ticks = 0; return
         }
-        if (!root.healthFitOk) return root.fail("Health route/page clipped at actual 11px V1/V2 fit height")
-        root.healthFitProbe.destroy(); Commons.Style.fontBaseSize = 12
-        fakeBar.layoutController = {v2Mode: false}
-        fakeBar.visualTokens = Object.assign({}, fakeBar.visualTokens, {v2Shell: false, shellStyle: "shinigami"})
-        appearance.controller.resetGroupAppearance("G4")
-        panel.v2LayoutActive = false
-        fakeShell.activeBarId = ""
-        fakeShell.barConfig = ({ id: "shinigami.bar" })
-        widget.bar = scopedStockBar
-        root.phase++
-        root.ticks = 0
-        return
+        if (!root.healthFitOk)
+          return root.fail("Health route/page clipped at actual 11px V1/V2 fit height")
+        if (root.pluginCardsStep === 0) {
+          const manifests = root.pluginCardManifests()
+          if (manifests.length !== 2)
+            return root.fail("plugin card manifest fixture must contain both plugins")
+          const installed = ({})
+          for (let index = 0; index < manifests.length; index++) {
+            const manifest = manifests[index]
+            installed[String(manifest.id || "")] = manifest
+          }
+          fakeBar.pluginRegistry = {
+            registryRevision: 1,
+            installedPlugins: installed,
+            isEnabled: function(_pluginId) { return false }
+          }
+          root.healthFitProbe.pluginUpdateService = null
+          if (!root.healthFitProbe.showSettingsPage("plugins"))
+            return root.fail("isolated plugin card page did not open")
+          root.pluginCardsStep = 1
+          root.ticks = 0
+          return
+        }
+        if (root.pluginCardsStep === 1) {
+          if (root.ticks < 4) return
+          const pluginPanel = root.healthFitProbe
+          const entries = pluginPanel.pluginEntries
+          const onedrive = entries.find(item =>
+            item.id === "shinigami.onedrive")
+          const wallpapers = entries.find(item =>
+            item.id === "shinigami.wallpaper-manager")
+          if (entries.length !== 2 || !onedrive || !wallpapers
+              || entries[0].id !== "shinigami.onedrive"
+              || entries[1].id !== "shinigami.wallpaper-manager"
+              || onedrive.name !== "Shinigami OneDrive"
+              || wallpapers.name !== "Shinigami Wallpapers"
+              || onedrive.glyph !== "cloud"
+              || wallpapers.glyph !== "wallpaper")
+            return root.fail("plugin card manifest projection drifted: "
+              + JSON.stringify(entries.map(item => ({
+                id: item.id, name: item.name, glyph: item.glyph
+              }))))
+          const thirdPartyOneDrive = pluginPanel.pluginGlyph(
+            "org.example.onedrive-addon", ["bar-widget"])
+          const thirdPartyWallpaperManager = pluginPanel.pluginGlyph(
+            "org.example.wallpaper-manager-tools", ["bar-widget"])
+          const thirdPartyWallpapers = pluginPanel.pluginGlyph(
+            "org.example.wallpapers", ["bar-widget"])
+          const thirdPartyDropbox = pluginPanel.pluginGlyph(
+            "org.example.dropbox-helper", ["bar-widget"])
+          if (thirdPartyOneDrive !== "widgets"
+              || thirdPartyWallpaperManager !== "widgets"
+              || thirdPartyWallpapers !== "widgets"
+              || thirdPartyDropbox !== "cloud")
+            return root.fail("third-party plugin glyph scope drifted: "
+              + JSON.stringify({
+                onedrive: thirdPartyOneDrive,
+                wallpaperManager: thirdPartyWallpaperManager,
+                wallpapers: thirdPartyWallpapers,
+                dropbox: thirdPartyDropbox
+              }))
+          console.log("PLUGIN_GLYPH_SCOPE third-party onedrive="
+            + thirdPartyOneDrive + " wallpaper-manager="
+            + thirdPartyWallpaperManager + " wallpapers="
+            + thirdPartyWallpapers + " dropbox=" + thirdPartyDropbox)
+          const pluginPage = pluginPanel.settingsPageItem
+          if (!pluginPage || pluginPanel.settingsPage !== "plugins")
+            return root.fail("isolated plugin card page did not instantiate")
+          pluginPage.motionActive = false
+          pluginPage.availableExpanded = true
+          if (!pluginPage.ready) {
+            if (root.ticks < 20) return
+            return root.fail("isolated plugin card page did not become ready"
+              + " all=" + pluginPage.allEntries.length
+              + " available=" + pluginPage.availableEntries.length
+              + " cards=" + pluginPage.availableExpanded)
+          }
+          const cards = []
+          root.collectPluginCardTiles(pluginPage, cards)
+          const onedriveCard = cards.find(item =>
+            item.label === "Shinigami OneDrive")
+          const wallpapersCard = cards.find(item =>
+            item.label === "Shinigami Wallpapers")
+          if (cards.length !== 2 || !onedriveCard || !wallpapersCard
+              || onedriveCard.glyph !== "cloud"
+              || wallpapersCard.glyph !== "wallpaper"
+              || !root.hasPluginCardTitle(pluginPage, "Shinigami OneDrive")
+              || !root.hasPluginCardTitle(pluginPage, "Shinigami Wallpapers"))
+            return root.fail("rendered plugin cards did not retain their names/icons: "
+              + cards.map(item => item.label + "/" + item.glyph).join(","))
+          console.log("PLUGIN_CARD_QT id=" + onedrive.id
+            + " title=" + onedriveCard.label + " glyph=" + onedriveCard.glyph)
+          console.log("PLUGIN_CARD_QT id=" + wallpapers.id
+            + " title=" + wallpapersCard.label + " glyph=" + wallpapersCard.glyph)
+          const capturePath = String(
+            Quickshell.env("SHINIGAMI_PLUGIN_CARD_CAPTURE") || "")
+          if (capturePath !== "") {
+            if (!root.pluginCardsCaptureRequested) {
+              root.pluginCardsCaptureRequested = true
+              if (!pluginPage.grabToImage(function(result) {
+                    const saved = result.saveToFile(capturePath)
+                    root.pluginCardsCaptureError = saved ? "" : "save failed"
+                    root.pluginCardsCaptureComplete = saved === true
+                  }))
+                return root.fail("isolated plugin card capture was not queued")
+              return
+            }
+            if (!root.pluginCardsCaptureComplete) {
+              if (root.pluginCardsCaptureError !== "")
+                return root.fail("plugin card capture failed: "
+                  + root.pluginCardsCaptureError)
+              if (root.ticks < 20) return
+              return root.fail("isolated plugin card capture timed out")
+            }
+            console.log("PLUGIN_CARD_CAPTURE " + capturePath)
+          }
+          fakeBar.pluginRegistry = null
+          root.healthFitProbe.destroy()
+          Commons.Style.fontBaseSize = 12
+          fakeBar.layoutController = {v2Mode: false}
+          fakeBar.visualTokens = Object.assign({}, fakeBar.visualTokens,
+            {v2Shell: false, shellStyle: "shinigami"})
+          appearance.controller.resetGroupAppearance("G4")
+          panel.v2LayoutActive = false
+          fakeShell.activeBarId = ""
+          fakeShell.barConfig = ({ id: "shinigami.bar" })
+          widget.bar = scopedStockBar
+          root.phase++
+          root.ticks = 0
+          return
+        }
+        return root.fail("plugin card smoke reached an invalid step")
       }
 
       if (root.phase === 10) {

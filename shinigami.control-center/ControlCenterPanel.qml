@@ -364,6 +364,8 @@ ShinigamiPanel {
 
   function pluginGlyph(pluginId, kinds) {
     const id = String(pluginId || "").toLowerCase()
+    if (id === "shinigami.onedrive") return "cloud"
+    if (id === "shinigami.wallpaper-manager") return "wallpaper"
     const semanticGlyphs = [
       { terms: ["control-center", ".menu"], glyph: "tune" },
       { terms: ["active-window"], glyph: "web_asset" },

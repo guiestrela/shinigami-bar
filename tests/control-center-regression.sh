@@ -171,10 +171,22 @@ rg -Fq 'onClicked: function(mouse) { root.triggerPress(mouse.button) }' \
   "$control_dir/BarWidget.qml" \
   || fail "G1 bypasses its shared host click path"
 [[ -f $control_dir/assets/shinigami-icon-hikiryo.svg ]] \
-  || fail "stock Omarchy host icon is missing"
-rg -Fq 'source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")' \
+  || fail "shared Shinigami logo source asset is missing"
+[[ -f $control_dir/assets/shinigami-icon-hikiryo-accent-mask.png ]] \
+  || fail "theme-responsive Shinigami accent mask is missing"
+[[ -f $control_dir/assets/shinigami-icon-hikiryo-ink-mask.png ]] \
+  || fail "theme-responsive Shinigami ink mask is missing"
+[[ -f $control_dir/ThemeShinigamiLogo.qml ]] \
+  || fail "theme-responsive Shinigami logo component is missing"
+[[ $(rg -F -c '    ThemeShinigamiLogo {' "$control_dir/BarWidget.qml") -eq 2 ]] \
+  || fail "both launcher logo branches must use the theme-responsive component"
+rg -Fq 'accent: root.tokens.seal' "$control_dir/BarWidget.qml" \
+  || fail "launcher logo accent is not bound to the theme"
+rg -Fq 'ink: root.bar ? root.bar.foreground : root.widgetInk' \
   "$control_dir/BarWidget.qml" \
-  || fail "Shinigami and stock-host launchers must retain the Hikiryō SVG"
+  || fail "no-fill launcher logo ink is not bound to host foreground"
+rg -Fq 'ink: root.widgetInk' "$control_dir/BarWidget.qml" \
+  || fail "custom-fill launcher logo ink is not bound to widgetInk"
 ! rg -Fq 'Presentation.BarGlyph {' "$control_dir/BarWidget.qml" \
   || fail "launcher logos must bypass the shared symbol mapper"
 rg -Fq 'width: root.stockOmarchyHost ? 18 : 16' \
@@ -506,7 +518,8 @@ for configure_preview_contract in \
     'SemanticPreviewImage.qml:property bool compact: false' \
     'PageMotionStage.qml:compact: true' \
     'SemanticPreviewImage.qml:visible: root.semanticRoute === "logo"' \
-    'SemanticPreviewImage.qml:source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")' \
+    'SemanticPreviewImage.qml:ThemeShinigamiLogo {' \
+    'PluginProviderSummary.qml:iconSource: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")' \
     'ConfigureLandingPage.qml:property int lastPreviewIndex: 0' \
     'ConfigureLandingPage.qml:previewDetail: previewDetails[page.id] || "Settings preview"' \
     'ConfigureLandingPage.qml:detail: root.previewRoute.previewDetail' \
@@ -740,7 +753,11 @@ for preview_contract in \
 done
 for logo_contract in \
   'LogoSettingsPage.qml:WordmarkPreview {' \
-  'LogoSettingsPage.qml:source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")' \
+  'LogoSettingsPage.qml:ThemeShinigamiLogo {' \
+  'ThemeShinigamiLogo.qml:globalCompositeOperation = "source-in"' \
+  'ThemeShinigamiLogo.qml:renderTarget: Canvas.Image' \
+  'ThemeShinigamiLogo.qml:shinigami-icon-hikiryo-accent-mask.png' \
+  'ThemeShinigamiLogo.qml:shinigami-icon-hikiryo-ink-mask.png' \
   'ControlCenterPanel.qml:"shinigami", "omarchy", "hyprland"' \
   'BarWidget.qml:root.launcherConfig.icon !== "shinigami"' \
   'WordmarkPreview.qml:Qt.resolvedUrl("assets/bob2.png")' \

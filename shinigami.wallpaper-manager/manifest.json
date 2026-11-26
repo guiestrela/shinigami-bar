@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "shinigami.wallpaper-manager",
-  "name": "Wallpapers",
+  "name": "Shinigami Wallpapers",
   "version": "0.2.5",
   "author": "guiestrela",
   "description": "Folder-backed per-display wallpapers with shuffle, pinning, scaling, and a bar panel.",

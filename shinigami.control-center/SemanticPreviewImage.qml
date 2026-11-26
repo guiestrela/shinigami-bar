@@ -550,15 +550,13 @@ Item {
       fontFamily: root.controller.marketFont
     }
 
-    Image {
+    ThemeShinigamiLogo {
       visible: compactLogoCard.iconMode
       anchors.centerIn: parent
       width: 26
       height: 26
-      source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")
-      fillMode: Image.PreserveAspectFit
-      smooth: true
-      mipmap: true
+      accent: root.accent
+      ink: root.foreground
     }
   }
 
@@ -924,14 +922,12 @@ Item {
       border.width: root.controller.controlBorderWidth
       border.color: root.controller.controlBorderColor
 
-      Image {
+      ThemeShinigamiLogo {
         anchors.centerIn: parent
         width: 30
         height: 30
-        source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")
-        fillMode: Image.PreserveAspectFit
-        smooth: true
-        mipmap: true
+        accent: root.accent
+        ink: root.foreground
       }
     }
   }
