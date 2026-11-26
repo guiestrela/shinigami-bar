@@ -2,6 +2,9 @@
 
 set -euo pipefail
 export QT_FORCE_STDERR_LOGGING=1
+# Fixed-date calendar assertions are formatted through Qt; keep the harness
+# independent of the machine's local timezone.
+export TZ=UTC
 
 repo_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$repo_root/tests/lib/baselines.sh"
@@ -1205,8 +1208,8 @@ for pair in \
   'shinigami.ai/AiUsagePanel.qml:panel.controlBorderColor' \
   'shinigami.audio/AudioPanel.qml:panel.controlHoverBorderColor' \
   'shinigami.bluetooth/BluetoothPanel.qml:panel.controlBorderColor' \
-  'shinigami.display-manager/BrightnessPanel.qml:panel.controlActiveFillColor' \
-  'shinigami.display-manager/BrightnessPanel.qml:panel.controlBorderColor' \
+  'shinigami.display-manager/DisplayManagerPanelContent.qml:panel.controlActiveFillColor' \
+  'shinigami.display-manager/DisplayManagerPanelContent.qml:panel.controlBorderColor' \
   'shinigami.network/NetworkPanel.qml:panel.controlBorderColor' \
   'shinigami.workspaces/WorkspacePanelContent.qml:root.controller.controlFillColor'; do
   file=${pair%%:*}

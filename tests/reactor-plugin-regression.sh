@@ -92,7 +92,7 @@ if rg -q '\bbar\.|moduleSlots|moduleItem\(' "$events"; then
   fail "event backend retains a concrete bar or slot reference"
 fi
 for dependency in workspaces status power-state ai network audio; do
-  rg -q "suiteService\(\"hancore\\.shinigami\\.${dependency}\"\)" "$events" \
+  rg -q "suiteService\(\"shinigami\\.${dependency}\"\)" "$events" \
     || fail "event backend bypasses $dependency service"
 done
 rg -q 'firstPartyService\("omarchy\.media"\)' "$events" \
