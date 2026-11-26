@@ -6,7 +6,9 @@ import copy
 import io
 import json
 import shutil
+import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -374,6 +376,104 @@ class LifecycleAdmissionTests(unittest.TestCase):
             classify_install_state(migrated, self.suite, self.identities),
             "step-5-tip",
         )
+
+    def test_exact_8c_predecessor_is_admitted_for_repair_preflight(self) -> None:
+        identity_id = "source-0.2.5-8c4364c"
+        identity = next(
+            (item for item in self.identities if item["id"] == identity_id),
+            None,
+        )
+        self.assertIsNotNone(identity, "exact 8c predecessor identity is missing")
+        assert identity is not None
+        revision = "8c4364c428c48229ec215ad4c5c0736b5e428f48"
+        self.assertEqual(identity["sourceRevisions"], [revision])
+        self.assertEqual(identity["suiteVersion"], "0.2.5")
+        self.assertEqual(
+            identity["payloadDigest"],
+            "971aac28b1547e5b27da6c9fbe53f296c5765b5bc3da06a67916b401da45aff0",
+        )
+        self.assertEqual(len(identity["pluginIds"]), 27)
+        historical_contract = json.loads(
+            subprocess.run(
+                [
+                    "git", "--no-replace-objects", "-C", str(REPO_ROOT),
+                    "show", f"{revision}:contracts/plugin-suite-v1.json",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                text=True,
+            ).stdout
+        )
+        historical_profile = next(
+            item for item in historical_contract["profiles"]
+            if item["id"] == "default"
+        )
+        self.assertEqual(identity["pluginIds"], historical_profile["install"])
+        self.assertEqual(
+            identity["settingsStorageVersion"],
+            historical_contract["settingsStorageVersion"],
+        )
+
+        archive = subprocess.run(
+            [
+                "git", "--no-replace-objects", "-C", str(REPO_ROOT),
+                "archive", revision, "--", *identity["pluginIds"],
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        historical_root = self.root / "verified-8c-payload"
+        historical_root.mkdir()
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+            bundle.extractall(historical_root, filter="data")
+        actual_digests = {
+            plugin_id: self.suite.plugins[plugin_id].payload_digest(
+                historical_root / plugin_id
+            )
+            for plugin_id in identity["pluginIds"]
+        }
+        self.assertEqual(actual_digests, identity["pluginDigests"])
+        self.assertEqual(
+            suite_payload_digest(actual_digests), identity["payloadDigest"]
+        )
+
+        state = self.state_for(identity, revision)
+        activation = state["activation"]
+        assert isinstance(activation, dict)
+        self.assertEqual(activation["layout"], historical_profile["layout"])
+        state["sourceRoot"] = str(historical_root)
+        state["payloadRoot"] = str(historical_root)
+        self.paths.plugin_dir.mkdir(parents=True, exist_ok=True)
+        transaction = "1-1-8c4364c0"
+        for plugin_id in identity["pluginIds"]:
+            target = self.paths.plugin_dir / plugin_id
+            shutil.copytree(historical_root / plugin_id, target)
+            marker = {
+                "schemaVersion": 1,
+                "suiteId": "hancore.shibumi",
+                "suiteVersion": identity["suiteVersion"],
+                "pluginId": plugin_id,
+                "sourceRevision": revision,
+                "payloadDigest": identity["pluginDigests"][plugin_id],
+                "suitePayloadDigest": identity["payloadDigest"],
+                "transaction": transaction,
+            }
+            (target / ".shinigami-managed.json").write_text(
+                json.dumps(marker) + "\n", encoding="utf-8"
+            )
+        self.write_state(state)
+        self.assertEqual(
+            preflight_lifecycle_state(self.paths, self.suite), identity_id
+        )
+
+        altered = copy.deepcopy(state)
+        altered_digests = copy.deepcopy(identity["pluginDigests"])
+        altered_digests["shinigami.ai"] = "0" * 64
+        altered["pluginDigests"] = altered_digests
+        altered["payloadDigest"] = suite_payload_digest(altered_digests)
+        self.write_state(altered)
+        with self.assertRaises(UnsupportedInstallIdentity):
+            preflight_lifecycle_state(self.paths, self.suite)
 
     def test_published_beta15_checkout_revisions_keep_exact_identity(self) -> None:
         published = {

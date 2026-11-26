@@ -5191,6 +5191,103 @@ class SuiteLifecycleTests(unittest.TestCase):
         with redirect_stdout(status_output), redirect_stderr(status_output):
             self.assertEqual(self.run_cli_main_isolated(["status"]), 0)
 
+    def test_verified_8c_predecessor_repair_through_complete_cli(self) -> None:
+        identity = next(
+            item for item in supported_install_identities(self.suite)
+            if item["id"] == "source-0.2.5-8c4364c"
+        )
+        revision = "8c4364c428c48229ec215ad4c5c0736b5e428f48"
+        self.assertEqual(identity["sourceRevisions"], [revision])
+        archive = subprocess.run(
+            [
+                "git", "--no-replace-objects", "-C", str(REPO_ROOT),
+                "archive", revision, "--", *identity["pluginIds"],
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        historical_root = self.root / "verified-8c-payload"
+        historical_root.mkdir()
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+            bundle.extractall(historical_root, filter="data")
+        historical_digests = {
+            plugin_id: self.suite.plugins[plugin_id].payload_digest(
+                historical_root / plugin_id
+            )
+            for plugin_id in identity["pluginIds"]
+        }
+        self.assertEqual(historical_digests, identity["pluginDigests"])
+        self.assertEqual(
+            suite_payload_digest(historical_digests), identity["payloadDigest"]
+        )
+
+        self.install()
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        right = config["bar"]["layout"]["right"]
+        wallpaper = next(
+            entry for entry in right
+            if entry_id(entry) == "shinigami.wallpaper-manager"
+        )
+        index = right.index(wallpaper)
+        right[index] = {**wallpaper, "displayMode": "fit"}
+        settings = state_entry(config)["shinigami"]
+        settings["predecessorRepairPreference"] = {"retain": ["8c", True]}
+        expected_layout = copy.deepcopy(config["bar"]["layout"])
+        expected_settings = copy.deepcopy(settings)
+        atomic_write(self.paths.config_file, encode_config(config))
+
+        state = load_install_state(self.paths, self.suite)
+        state["suiteVersion"] = identity["suiteVersion"]
+        state["sourceRevision"] = revision
+        state["payloadDigest"] = identity["payloadDigest"]
+        state["pluginDigests"] = copy.deepcopy(identity["pluginDigests"])
+        state["plugins"] = list(identity["pluginIds"])
+        state["sourceRoot"] = str(historical_root)
+        state["payloadRoot"] = str(historical_root)
+        transaction = "1-1-8c4364c0"
+        for plugin_id in identity["pluginIds"]:
+            target = self.paths.plugin_dir / plugin_id
+            shutil.rmtree(target)
+            shutil.copytree(historical_root / plugin_id, target)
+            marker = {
+                "schemaVersion": 1,
+                "suiteId": "hancore.shibumi",
+                "suiteVersion": identity["suiteVersion"],
+                "pluginId": plugin_id,
+                "sourceRevision": revision,
+                "payloadDigest": identity["pluginDigests"][plugin_id],
+                "suitePayloadDigest": identity["payloadDigest"],
+                "transaction": transaction,
+            }
+            atomic_write(
+                target / ".shinigami-managed.json",
+                (json.dumps(marker, indent=2) + "\n").encode(),
+            )
+        atomic_write(
+            self.paths.state_dir / "install.json",
+            (json.dumps(state, indent=2) + "\n").encode(),
+        )
+        damaged_manifest = (
+            self.paths.plugin_dir / "shinigami.wallpaper-manager" / "manifest.json"
+        )
+        damaged_manifest.write_text("{}", encoding="utf-8")
+
+        output = io.StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            self.assertEqual(self.run_cli_main_isolated(["repair", "--yes"]), 0)
+        self.assertIn("Repaired Shinigami (27 plugins)", output.getvalue())
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(repaired["bar"]["layout"], expected_layout)
+        self.assertEqual(state_entry(repaired)["shinigami"], expected_settings)
+        for plugin_id in identity["pluginIds"]:
+            self.assertEqual(
+                plugin_payload_digest(self.paths.plugin_dir / plugin_id),
+                self.suite.plugins[plugin_id].payload_digest(),
+            )
+        status_output = io.StringIO()
+        with redirect_stdout(status_output), redirect_stderr(status_output):
+            self.assertEqual(self.run_cli_main_isolated(["status"]), 0)
+
     def test_repair_still_rejects_symlinked_managed_plugin_root(self) -> None:
         self.install()
         plugin_id = "shinigami.wallpaper-manager"
