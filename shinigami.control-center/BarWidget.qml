@@ -63,8 +63,6 @@ Ui.Panel {
   readonly property int barSize: bar ? Number(bar.barSize || 0) : 0
   readonly property bool panelLoaded: panelLoader.item !== null
   readonly property var panelItem: panelLoader.item
-  readonly property bool v1TintedLauncherIconVisible: iconMode
-    && !stockOmarchyHost && launcherConfig.icon === "shinigami" && v1CustomFill
   readonly property bool animationActive: pointer.containsMouse
   readonly property var launcherStateConfig: stateService
     && stateService.requestedConfig ? stateService.requestedConfig
@@ -447,26 +445,14 @@ Ui.Panel {
       font.pixelSize: root.iconSize(root.launcherConfig.icon)
     }
 
-    ThemeShinigamiLogo {
+    Image {
       visible: root.stockOmarchyHost
-        || (root.launcherConfig.icon === "shinigami" && !root.v1CustomFill)
+        || root.launcherConfig.icon === "shinigami"
       anchors.centerIn: parent
       width: 18
       height: 18
-      accent: root.tokens.seal
-      ink: root.bar ? root.bar.foreground : root.widgetInk
-    }
-
-    ThemeShinigamiLogo {
-      id: v1TintedLauncherIcon
-      visible: !root.stockOmarchyHost
-        && root.launcherConfig.icon === "shinigami"
-        && root.v1CustomFill
-      anchors.centerIn: parent
-      width: 18
-      height: 18
-      accent: root.tokens.seal
-      ink: root.widgetInk
+      source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
+      fillMode: Image.PreserveAspectFit
     }
   }
 

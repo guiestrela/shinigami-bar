@@ -126,7 +126,7 @@ rg -Fq 'implicitWidth: bar.vertical && validScreen ? bar.barSize : 0' \
   "$repo_root/shinigami.bar/core/BarPanel.qml" \
   || fail 'BarPanel source is not bar-width'
 
-tmpdir=$(mktemp -d /tmp/shinigami-panel-geometry.XXXXXX)
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/shinigami-panel-geometry.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -211,8 +211,9 @@ for directory in (base / "Ui", base / "shared"):
 PY
 
 if [[ ${1:-} == --stage-control-center ]]; then
-  [[ $# -eq 2 && $2 == /tmp/shinigami-control-center.*/control && -d $2 ]] \
-    || fail 'expected a private Control Center staging directory'
+  tmp_root=${TMPDIR:-/tmp}
+  [[ $# -eq 2 && $2 == "$tmp_root"/shinigami-control-center.*/control && -d $2 ]] \
+    || fail 'expected a private Control Center staging directory under TMPDIR'
   cp -- "$base/shared/ShinigamiPanel.qml" "$base/shared/FixturePanelWindow.qml" "$2/"
   exit 0
 fi

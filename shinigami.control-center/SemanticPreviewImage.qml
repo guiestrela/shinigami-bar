@@ -550,13 +550,13 @@ Item {
       fontFamily: root.controller.marketFont
     }
 
-    ThemeShinigamiLogo {
+    Image {
       visible: compactLogoCard.iconMode
       anchors.centerIn: parent
       width: 26
       height: 26
-      accent: root.accent
-      ink: root.foreground
+      source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
+      fillMode: Image.PreserveAspectFit
     }
   }
 
@@ -922,12 +922,12 @@ Item {
       border.width: root.controller.controlBorderWidth
       border.color: root.controller.controlBorderColor
 
-      ThemeShinigamiLogo {
+      Image {
         anchors.centerIn: parent
         width: 30
         height: 30
-        accent: root.accent
-        ink: root.foreground
+        source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
+        fillMode: Image.PreserveAspectFit
       }
     }
   }

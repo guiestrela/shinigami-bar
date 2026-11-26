@@ -59,13 +59,13 @@ ShellRoot {
     throw new Error(message)
   }
 
-  function launcherThemeLogos(widget) {
+  function launcherDirectImages(widget) {
     const logos = []
     const visit = function(item) {
       if (!item) return
       if (item.width === 18 && item.height === 18
-          && item.ready !== undefined && item.accent !== undefined
-          && item.ink !== undefined)
+          && item.fillMode === Image.PreserveAspectFit
+          && String(item.source).indexOf("shinigami-shell-transparente.svg") >= 0)
         logos.push(item)
       const children = item.children || []
       for (let index = 0; index < children.length; index++)
@@ -786,47 +786,38 @@ ShellRoot {
             "Icons selection height differed between V1 and V2")
         panel.v2LayoutActive = false
         if (!panel.setLauncherSelection("icon", "shinigami"))
-          return root.fail("V1 Launcher tint fixture was rejected")
-        const launcherLogos = root.launcherThemeLogos(widget)
+          return root.fail("V1 Launcher direct SVG fixture was rejected")
+        const launcherLogos = root.launcherDirectImages(widget)
         let visibleLauncherLogo = launcherLogos.find(item => item.visible)
-        if (!widget.iconMode || widget.v1CustomFill || launcherLogos.length !== 2
+        if (!widget.iconMode || widget.v1CustomFill || launcherLogos.length !== 1
             || !visibleLauncherLogo
-            || !Qt.colorEqual(visibleLauncherLogo.accent,
-              fakeBar.visualTokens.seal)
-            || !Qt.colorEqual(visibleLauncherLogo.ink, fakeBar.foreground))
-          return root.fail("no-fill Shinigami launcher must bind accent and host foreground"
+            || visibleLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || String(visibleLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
+          return root.fail("no-fill Shinigami launcher must use the supplied SVG directly"
             + " logos=" + launcherLogos.length
-            + " ink=" + (visibleLauncherLogo ? visibleLauncherLogo.ink : "missing")
-            + " foreground=" + fakeBar.foreground
-            + " accent=" + (visibleLauncherLogo ? visibleLauncherLogo.accent : "missing"))
-        console.log("LAUNCHER_LOGO_INK no-fill-shinigami"
-          + " accent=" + visibleLauncherLogo.accent
-          + " foreground=" + fakeBar.foreground
-          + " ink=" + visibleLauncherLogo.ink)
+            + " source=" + (visibleLauncherLogo ? visibleLauncherLogo.source : "missing"))
+        console.log("LAUNCHER_DIRECT_SVG no-fill-shinigami"
+          + " source=" + visibleLauncherLogo.source
+          + " fillMode=" + visibleLauncherLogo.fillMode)
         scopedStockBar.visualTokens = fakeBar.visualTokens
         const stockLauncherWidget = stockLauncherWidgetComponent
           .createObject(testWindow)
         if (!stockLauncherWidget)
           return root.fail("stock Omarchy launcher probe did not instantiate")
-        const stockLauncherLogos = root.launcherThemeLogos(stockLauncherWidget)
-        const stockLauncherLogo = stockLauncherLogos.find(item =>
-          Qt.colorEqual(item.ink, scopedStockBar.foreground))
+        const stockLauncherLogos = root.launcherDirectImages(stockLauncherWidget)
+        const stockLauncherLogo = stockLauncherLogos.length > 0
+          ? stockLauncherLogos[0] : null
         if (!stockLauncherWidget.stockOmarchyHost
             || !stockLauncherWidget.iconMode
             || stockLauncherWidget.v1CustomFill
-            || stockLauncherLogos.length !== 2
+            || stockLauncherLogos.length !== 1
             || !stockLauncherLogo
-            || !Qt.colorEqual(stockLauncherLogo.accent,
-              fakeBar.visualTokens.seal)
-            || !Qt.colorEqual(stockLauncherLogo.ink,
-              scopedStockBar.foreground))
-          return root.fail("stock Omarchy launcher must bind accent and host foreground"
-            + " ink=" + (stockLauncherLogo ? stockLauncherLogo.ink : "missing")
-            + " foreground=" + scopedStockBar.foreground)
-        console.log("LAUNCHER_LOGO_INK stock-omarchy"
-          + " accent=" + stockLauncherLogo.accent
-          + " foreground=" + scopedStockBar.foreground
-          + " ink=" + stockLauncherLogo.ink)
+            || stockLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || String(stockLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
+          return root.fail("stock Omarchy launcher must use the supplied SVG directly")
+        console.log("LAUNCHER_DIRECT_SVG stock-omarchy"
+          + " source=" + stockLauncherLogo.source
+          + " fillMode=" + stockLauncherLogo.fillMode)
         stockLauncherWidget.destroy()
         scopedStockBar.visualTokens = null
         if (!appearance.controller.setGroupSetting("G1", "color", "color05")
@@ -838,30 +829,22 @@ ShellRoot {
         widget.settings = stateService.groupSettingsForVariant("G1", "v1")
         if (!widget.nativePillSurfaceVisible
             || !widget.v1CustomFill
-            || !widget.v1TintedLauncherIconVisible
             || Math.abs(widget.renderedPillFillColor.a - 0.4) > 0.001
             || stateService.groupAppearanceSettingForVariant(
               "G1", "v2", "color", "inherit") !== "inherit")
           return root.fail("V1 Launcher appearance was not isolated")
         visibleLauncherLogo = launcherLogos.find(item => item.visible)
-        if (!visibleLauncherLogo
-            || !Qt.colorEqual(visibleLauncherLogo.accent,
-              fakeBar.visualTokens.seal)
-            || !Qt.colorEqual(visibleLauncherLogo.ink, widget.widgetInk)
-            || Qt.colorEqual(visibleLauncherLogo.ink, fakeBar.foreground))
-          return root.fail("custom-fill launcher must preserve widget contrast ink"
-            + " ink=" + (visibleLauncherLogo ? visibleLauncherLogo.ink : "missing")
-            + " widgetInk=" + widget.widgetInk
-            + " foreground=" + fakeBar.foreground)
-        console.log("LAUNCHER_LOGO_INK custom-fill"
-          + " accent=" + visibleLauncherLogo.accent
-          + " foreground=" + fakeBar.foreground
-          + " widgetInk=" + widget.widgetInk
-          + " ink=" + visibleLauncherLogo.ink)
+        if (!visibleLauncherLogo || launcherLogos.length !== 1
+            || visibleLauncherLogo.fillMode !== Image.PreserveAspectFit
+            || String(visibleLauncherLogo.source).indexOf("shinigami-shell-transparente.svg") < 0)
+          return root.fail("custom-fill launcher must keep the supplied SVG unmodified")
+        console.log("LAUNCHER_DIRECT_SVG custom-fill"
+          + " source=" + visibleLauncherLogo.source
+          + " fillMode=" + visibleLauncherLogo.fillMode)
         if (!appearance.controller.resetGroupAppearance("G1"))
           return root.fail("V1 Launcher appearance reset was rejected")
         widget.settings = stateService.groupSettingsForVariant("G1", "v1")
-        if (widget.v1CustomFill || widget.v1TintedLauncherIconVisible)
+        if (widget.v1CustomFill)
           return root.fail("V1 Launcher appearance reset drifted")
         appearance.controller.setGroupSetting("G1", "displayMode", "text")
         if (!widget.iconMode)

@@ -91,7 +91,7 @@ Column {
           fontFamily: root.controller.marketFont
         }
 
-        ThemeShinigamiLogo {
+        Image {
           visible: modeCard.modelData.value === "icon"
             && root.controller.launcherConfig.icon === "shinigami"
           anchors.horizontalCenter: parent.horizontalCenter
@@ -99,8 +99,8 @@ Column {
           anchors.topMargin: Commons.Style.space(5)
           width: Commons.Style.space(22)
           height: width
-          accent: root.accent
-          ink: root.foreground
+          source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
+          fillMode: Image.PreserveAspectFit
         }
 
         Text {
@@ -184,7 +184,7 @@ Column {
           fontFamily: root.controller.marketFont
         }
 
-        ThemeShinigamiLogo {
+        Image {
           visible: root.activeMode === "icon"
             && optionCard.modelData === "shinigami"
           anchors.horizontalCenter: parent.horizontalCenter
@@ -192,8 +192,8 @@ Column {
           anchors.topMargin: Commons.Style.space(4)
           width: Commons.Style.space(23)
           height: width
-          accent: root.accent
-          ink: root.foreground
+          source: Qt.resolvedUrl("assets/shinigami-shell-transparente.svg")
+          fillMode: Image.PreserveAspectFit
         }
 
         Text {

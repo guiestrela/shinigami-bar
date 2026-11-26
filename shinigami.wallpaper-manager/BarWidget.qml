@@ -979,6 +979,17 @@ Panel {
     function shuffle(): string { root.nextImage(); return "ok" }
   }
 
+  Presentation.PillSurface {
+    tokenSource: root.panelTokens
+    settings: root.settings
+    v1AppearanceEnabled: true
+    anchors.fill: parent
+    anchors.topMargin: root.bar && !root.bar.vertical
+      ? Math.round((parent.height - root.panelTokens.pillHeight) / 2) : 0
+    anchors.bottomMargin: anchors.topMargin
+    bar: root.bar
+  }
+
   BarIconButton {
     id: button
     objectName: "wallpaper-bar-button"
