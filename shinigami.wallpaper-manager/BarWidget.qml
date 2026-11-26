@@ -7,6 +7,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "../shinigami.state/lib/presentation" as Presentation
 
 // Local Rise-style restyle; stock signal/click paths preserved.
 // Bar icon + settings panel for the folder-backed background service.
@@ -314,26 +315,21 @@ Panel {
     return out
   }
 
-  readonly property color fg: bar ? bar.foreground : Commons.Color.foreground
   readonly property string fontFamily: bar && bar.fontFamily ? bar.fontFamily : Style.font.family
 
-  // Follow the active Shinigami bar instead of the Commons control palette.
+  // Keep the active bar's palette, or use the same compatibility palette as
+  // the other suite widgets when the host has no Shinigami visual tokens.
+  Presentation.HostTokens { id: hostTokens; bar: root.bar }
   readonly property var barTokens: bar && "visualTokens" in bar ? bar.visualTokens : null
-
-  readonly property color panelAccent: barTokens ? barTokens.seal
-    : (bar && bar.urgent ? bar.urgent : Commons.Color.accent)
-  readonly property color panelInk: barTokens ? barTokens.ink : fg
-  readonly property color panelMuted: barTokens && "sumiHi" in barTokens
-    ? barTokens.sumiHi : Qt.lighter(Commons.Color.muted, 1.35)
-  readonly property color panelSep: barTokens ? barTokens.separator
-    : Qt.rgba(panelInk.r, panelInk.g, panelInk.b, 0.18)
-  readonly property color panelFillIdle: barTokens ? barTokens.fillIdle
-    : Qt.rgba(0, 0, 0, 0.12)
-  readonly property color panelFillHover: barTokens ? barTokens.fillHover
-    : Qt.rgba(panelAccent.r, panelAccent.g, panelAccent.b, 0.10)
-  readonly property color panelFillActive: barTokens ? barTokens.fillActive
-    : Qt.rgba(panelAccent.r, panelAccent.g, panelAccent.b, 0.18)
-  readonly property int panelTileRadius: barTokens ? barTokens.tileRadius : 4
+  readonly property var panelTokens: barTokens || hostTokens
+  readonly property color panelAccent: panelTokens.seal
+  readonly property color panelInk: panelTokens.ink
+  readonly property color panelMuted: "sumiHi" in panelTokens ? panelTokens.sumiHi : hostTokens.sumiHi
+  readonly property color panelSep: panelTokens.separator
+  readonly property color panelFillIdle: panelTokens.fillIdle
+  readonly property color panelFillHover: panelTokens.fillHover
+  readonly property color panelFillActive: panelTokens.fillActive
+  readonly property int panelTileRadius: panelTokens.tileRadius
 
   // Rise-style controls that keep the stock widget's signals and click paths.
   // Every visual state is painted from the live Shinigami bar tokens.

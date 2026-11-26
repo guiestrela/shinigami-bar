@@ -364,6 +364,12 @@ class PackageReleaseTests(unittest.TestCase):
                 "settingsStorageVersion": 1,
                 "payloadDigest": "546fb54b2ec28ff00dfe00ddbf12b2868e9e1f2d0ddd9d8cd2a1c26016531c84",
             },
+            "source-0.2.5-6263322": {
+                "suiteVersion": "0.2.5",
+                "sourceRevisions": ["6263322d6082c9c07b0e122cdadaada2b3005413"],
+                "settingsStorageVersion": 1,
+                "payloadDigest": "ae28a41ccb563b8efb854e8e35c55cecf663982c66bef566ee6d45f2848bf286",
+            },
         }
         self.assertEqual(set(states), set(expected))
         for identity_id, pinned in expected.items():
@@ -372,7 +378,7 @@ class PackageReleaseTests(unittest.TestCase):
                 for field, value in pinned.items():
                     self.assertEqual(state[field], value)
                 expected_roster_size = (
-                    27 if identity_id in {"public-0.2.5", "source-0.2.5"} else 24
+                    27 if identity_id in {"public-0.2.5", "source-0.2.5", "source-0.2.5-6263322"} else 24
                 )
                 self.assertEqual(len(state["pluginIds"]), expected_roster_size)
                 self.assertEqual(

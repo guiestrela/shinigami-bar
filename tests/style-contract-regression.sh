@@ -377,8 +377,8 @@ for tooltip_shadow_contract in \
     || fail "V1 tooltip shadow drifted: $tooltip_shadow_contract"
 done
 for widget in ai audio battery bluetooth display-manager center control-center cpu gpu \
-    media memory network power-profile quick-access status storage temperature \
-    workspaces; do
+    media memory network onedrive power-profile quick-access status storage temperature \
+    wallpaper-manager workspaces; do
   token_injection='Presentation.HostTokens { id: hostTokens; bar: root.bar }'
   case "$widget" in
     audio|media|control-center|cpu|memory|gpu|storage|temperature|workspaces|battery|power-profile)

@@ -295,6 +295,7 @@ class LifecycleAdmissionTests(unittest.TestCase):
             "source-0.2.4",
             "public-0.2.5",
             "source-0.2.5",
+            "source-0.2.5-6263322",
         ):
             identity = next(
                 item for item in self.identities if item["id"] == identity_id

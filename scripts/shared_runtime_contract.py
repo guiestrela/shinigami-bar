@@ -130,6 +130,7 @@ PRESENTATION_IMPORTERS = frozenset({
     "shinigami.update-center/PanelButton.qml",
     "shinigami.update-center/ThemesTab.qml",
     "shinigami.update-center/UpdateCenterPanel.qml",
+    "shinigami.wallpaper-manager/BarWidget.qml",
     "shinigami.workspaces/BarWidget.qml",
     "shinigami.workspaces/WorkspacePanelContent.qml",
 })
