@@ -461,7 +461,8 @@ Ui.Panel {
       mipmap: true
     }
 
-    FlatTintedImage {
+    // The multicolor mark must bypass the alpha-only tint shader.
+    Image {
       id: v1TintedLauncherIcon
       visible: !root.stockOmarchyHost
         && root.launcherConfig.icon === "shinigami"
@@ -470,7 +471,11 @@ Ui.Panel {
       width: 18
       height: 18
       source: Qt.resolvedUrl("assets/shinigami-icon-hikiryo.svg")
-      tint: root.widgetInk
+      fillMode: Image.PreserveAspectFit
+      sourceSize.width: 24
+      sourceSize.height: 24
+      smooth: true
+      mipmap: true
     }
   }
 

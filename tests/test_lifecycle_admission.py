@@ -270,6 +270,59 @@ class LifecycleAdmissionTests(unittest.TestCase):
         )
         return directory
 
+    def test_verified_predecessor_accepts_only_its_historical_managed_layout(self) -> None:
+        identity_ids = (
+            "public-0.2.5",
+            "source-0.2.5",
+            "source-0.2.5-6263322",
+        )
+        historical_layout = {
+            "left": [
+                "shinigami.control-center", "shinigami.workspaces",
+                "shinigami.status", "shinigami.memory", "shinigami.cpu",
+                "shinigami.audio", "shinigami.ai",
+            ],
+            "center": ["shinigami.center", "shinigami.indicators"],
+            "right": [
+                "shinigami.media", "shinigami.quick-access",
+                "shinigami.wallpaper-manager", "shinigami.onedrive",
+                "shinigami.network", "shinigami.power-profile",
+                "shinigami.battery", "shinigami.display-manager",
+                "shinigami.bluetooth", "shinigami.temperature",
+                "shinigami.gpu", "shinigami.storage",
+            ],
+        }
+        state: dict[str, object] | None = None
+        for identity_id in identity_ids:
+            identity = next(
+                item for item in self.identities if item["id"] == identity_id
+            )
+            state = self.state_for(identity)
+            activation = state["activation"]
+            assert isinstance(activation, dict)
+            activation["layout"] = copy.deepcopy(historical_layout)
+            self.assertEqual(
+                classify_install_state(state, self.suite, self.identities),
+                identity_id,
+            )
+        assert state is not None
+
+        wrong_revision = copy.deepcopy(state)
+        wrong_revision["sourceRevision"] = "f" * 40
+        with self.assertRaisesRegex(AdmissionError, "unknown activation ownership"):
+            classify_install_state(wrong_revision, self.suite, self.identities)
+
+        duplicate = copy.deepcopy(state)
+        duplicate_activation = duplicate["activation"]
+        assert isinstance(duplicate_activation, dict)
+        duplicate_layout = duplicate_activation["layout"]
+        assert isinstance(duplicate_layout, dict)
+        duplicate_right = duplicate_layout["right"]
+        assert isinstance(duplicate_right, list)
+        duplicate_right.append("shinigami.wallpaper-manager")
+        with self.assertRaisesRegex(AdmissionError, "unknown activation ownership"):
+            classify_install_state(duplicate, self.suite, self.identities)
+
     def test_exact_public_release_and_step5_states_are_admitted(self) -> None:
         for identity_id in (
             "public-beta.11",

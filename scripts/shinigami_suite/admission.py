@@ -45,6 +45,40 @@ MAX_IDENTITY_REVISIONS = 8
 MAX_PLUGIN_PAYLOAD_ENTRIES = 16384
 MAX_PLUGIN_PAYLOAD_BYTES = 64 * 1024 * 1024
 PLUGIN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+VERIFIED_HISTORICAL_MANAGED_LAYOUT_0_2_5 = {
+    "left": [
+        "shinigami.control-center",
+        "shinigami.workspaces",
+        "shinigami.status",
+        "shinigami.memory",
+        "shinigami.cpu",
+        "shinigami.audio",
+        "shinigami.ai",
+    ],
+    "center": ["shinigami.center", "shinigami.indicators"],
+    "right": [
+        "shinigami.media",
+        "shinigami.quick-access",
+        "shinigami.wallpaper-manager",
+        "shinigami.onedrive",
+        "shinigami.network",
+        "shinigami.power-profile",
+        "shinigami.battery",
+        "shinigami.display-manager",
+        "shinigami.bluetooth",
+        "shinigami.temperature",
+        "shinigami.gpu",
+        "shinigami.storage",
+    ],
+}
+VERIFIED_HISTORICAL_MANAGED_LAYOUTS = {
+    identity_id: VERIFIED_HISTORICAL_MANAGED_LAYOUT_0_2_5
+    for identity_id in (
+        "public-0.2.5",
+        "source-0.2.5",
+        "source-0.2.5-6263322",
+    )
+}
 SUITE_VERSION_PATTERN = re.compile(
     r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
     r"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
@@ -426,6 +460,26 @@ def _validate_identity_tuple(
         )
 
 
+def _managed_layout_admitted(
+    layout: Any,
+    state: dict[str, Any],
+    profile: Any,
+    identities: list[dict[str, Any]],
+) -> bool:
+    canonical = {
+        region: list(profile.layout[region])
+        for region in ("left", "center", "right")
+    }
+    if layout == canonical:
+        return True
+    return any(
+        identity.get("id") in VERIFIED_HISTORICAL_MANAGED_LAYOUTS
+        and layout == VERIFIED_HISTORICAL_MANAGED_LAYOUTS[identity["id"]]
+        and _identity_matches(state, identity)
+        for identity in identities
+    )
+
+
 def _validate_activation(
     state: dict[str, Any], suite: Suite, identities: list[dict[str, Any]]
 ) -> None:
@@ -487,10 +541,7 @@ def _validate_activation(
             mode != "managed"
             or (
                 configured_bar == profile.active_bar
-                and layout == {
-                    region: list(profile.layout[region])
-                    for region in ("left", "center", "right")
-                }
+                and _managed_layout_admitted(layout, state, profile, identities)
             )
         )
     )

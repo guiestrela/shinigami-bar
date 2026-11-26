@@ -468,7 +468,6 @@
           "shinigami.media",
           "shinigami.quick-access",
           "shinigami.wallpaper-manager",
-          "shinigami.onedrive",
           "shinigami.network",
           "shinigami.power-profile",
           "shinigami.battery",
@@ -476,7 +475,8 @@
           "shinigami.bluetooth",
           "shinigami.temperature",
           "shinigami.gpu",
-          "shinigami.storage"
+          "shinigami.storage",
+          "shinigami.onedrive"
         ]
       },
       "disabledByDefault": [

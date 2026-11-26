@@ -262,9 +262,24 @@ Repair validates and stages all current plugin roots, verifies the running
 payload, and rolls back to the exact pre-repair state if a gate fails. Repair
 alone tolerates a missing owned plugin root or changed payload bytes only while
 the supported install state and every remaining ownership marker stay exact.
-It restores the selected Shinigami profile in managed mode and preserves the
-active bar and layout in external mode. It refuses unsafe markers or paths and
-never overwrites a foreign directory.
+For a managed installation, a healthy current widget layout, entry options, and
+Shinigami settings are preserved by default; a fresh installation uses the
+profile's canonical default order. External-bar repairs continue to preserve the
+external bar and layout.
+
+If managed widget membership is malformed, duplicated, or incomplete, ordinary
+repair refuses before publishing changes. Use the explicit recovery option to
+rebuild the canonical managed membership:
+
+```bash
+./scripts/shinigami-suite repair --restore-layout
+```
+
+This keeps the installation managed and restores the profile's canonical widget
+order. Valid external widgets already present in the layout are retained when
+possible; invalid, duplicate, unsupported, or unavailable entries are not
+preserved. Repair refuses unsafe markers or paths and never overwrites a foreign
+directory.
 
 ## Switch bar hosts
 

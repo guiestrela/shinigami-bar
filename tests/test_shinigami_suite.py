@@ -21,7 +21,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Callable
+from typing import Any, Callable
 from unittest.mock import Mock, patch
 
 
@@ -79,6 +79,8 @@ from shinigami_suite.cli import (  # noqa: E402
     command_uninstall,
     command_update,
     load_install_state,
+    main as suite_main,
+    parser,
     version_key,
 )
 from shinigami_suite.config import (  # noqa: E402
@@ -927,6 +929,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             "keep_settings": False,
             "no_activate": False,
             "keep_layout": False,
+            "restore_layout": False,
         }
         defaults.update(values)
         return SimpleNamespace(**defaults)
@@ -936,6 +939,39 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(
             command_install(self.args(), self.suite, self.paths, self.runtime), 0
         )
+
+    def install_external_symlink_widget(
+        self, *, extra_options: dict[str, Any]
+    ) -> tuple[Path, Path, dict[str, Any]]:
+        external_target = self.root / "third-party" / "local.extra"
+        external_target.mkdir(parents=True)
+        (external_target / "manifest.json").write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "id": "local.extra",
+                "name": "Local Extra",
+                "version": "1.0.0",
+                "kinds": ["bar-widget"],
+                "entryPoints": {"barWidget": "BarWidget.qml"},
+            }),
+            encoding="utf-8",
+        )
+        (external_target / "BarWidget.qml").write_text("Item {}", encoding="utf-8")
+        external_link = self.paths.plugin_dir / "local.extra"
+        shutil.rmtree(external_link)
+        external_link.symlink_to(external_target, target_is_directory=True)
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        expected_entry = {"id": "local.extra", **copy.deepcopy(extra_options)}
+        found = False
+        for region in ("left", "center", "right"):
+            entries = config["bar"]["layout"][region]
+            for index, entry in enumerate(entries):
+                if entry_id(entry) == "local.extra":
+                    entries[index] = copy.deepcopy(expected_entry)
+                    found = True
+        self.assertTrue(found)
+        atomic_write(self.paths.config_file, encode_config(config))
+        return external_link, external_target, expected_entry
 
     def write_orphan_shinigami_config(self) -> dict[str, object]:
         config = json.loads(self.defaults.read_text(encoding="utf-8"))
@@ -2066,6 +2102,26 @@ class SuiteLifecycleTests(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
 
+    def run_cli_main_isolated(self, argv: list[str]) -> int:
+        self.create_quattro_host_contract()
+        environment = {
+            "OMARCHY_PATH": str(self.paths.omarchy_root),
+            "SHINIGAMI_DEFAULT_CONFIG": str(self.paths.defaults_file),
+            "SHINIGAMI_CONFIG_FILE": str(self.paths.config_file),
+            "SHINIGAMI_PLUGIN_DIR": str(self.paths.plugin_dir),
+            "SHINIGAMI_STATE_DIR": str(self.paths.state_dir),
+            "SHINIGAMI_CACHE_DIR": str(self.paths.cache_dir),
+            "SHINIGAMI_LOCK_FILE": str(self.paths.lock_file),
+        }
+        with patch.dict(os.environ, environment):
+            with patch("shinigami_suite.cli.Suite.load", return_value=self.suite):
+                with patch(
+                    "shinigami_suite.cli.OmarchyRuntime",
+                    return_value=self.runtime,
+                ):
+                    with patch.object(self.suite, "revision", return_value="f" * 40):
+                        return suite_main(argv)
+
     def prepare_legacy_install(self) -> dict[str, object]:
         self.paths.plugin_dir.mkdir(parents=True, exist_ok=True)
         old_ids: list[str] = []
@@ -3170,6 +3226,108 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertTrue(set(profile.disabled_by_default).issubset(layout_ids))
         self.assertEqual(result["bar"]["position"], "top")
         self.assertIn("local.extra", layout_ids)
+
+    def test_default_profile_install_and_repair_keep_effective_layout_and_preferences(
+        self,
+    ) -> None:
+        expected_layout = {
+            "left": [
+                "shinigami.control-center",
+                "shinigami.workspaces",
+                "shinigami.status",
+                "shinigami.memory",
+                "shinigami.cpu",
+                "shinigami.audio",
+                "shinigami.ai",
+            ],
+            "center": ["shinigami.center", "shinigami.indicators"],
+            "right": [
+                "shinigami.media",
+                "shinigami.quick-access",
+                "shinigami.wallpaper-manager",
+                "shinigami.network",
+                "shinigami.power-profile",
+                "shinigami.battery",
+                "shinigami.display-manager",
+                "shinigami.bluetooth",
+                "shinigami.temperature",
+                "shinigami.gpu",
+                "shinigami.storage",
+                "shinigami.onedrive",
+            ],
+        }
+        self.assertEqual(
+            {
+                group: list(ids)
+                for group, ids in self.suite.profile("default").layout.items()
+            },
+            expected_layout,
+        )
+        expected_installed_layout = copy.deepcopy(expected_layout)
+        expected_installed_layout["right"].append("local.extra")
+
+        self.install()
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(
+            {
+                group: [entry_id(entry) for entry in config["bar"]["layout"][group]]
+                for group in ("left", "center", "right")
+            },
+            expected_installed_layout,
+        )
+        wallpaper_id = "shinigami.wallpaper-manager"
+        right = config["bar"]["layout"]["right"]
+        wallpaper_index = next(
+            index for index, entry in enumerate(right)
+            if entry_id(entry) == wallpaper_id
+        )
+        wallpaper_entry = right[wallpaper_index]
+        wallpaper_entry = (
+            dict(wallpaper_entry)
+            if isinstance(wallpaper_entry, dict)
+            else {"id": wallpaper_entry}
+        )
+        wallpaper_entry["displayMode"] = "fit"
+        right[wallpaper_index] = wallpaper_entry
+        state_entry(config)["shinigami"]["userRepairSetting"] = {
+            "preserve": ["configuration", 7, False]
+        }
+        expected_user_settings = copy.deepcopy(state_entry(config)["shinigami"])
+        atomic_write(self.paths.config_file, encode_config(config))
+        (self.paths.plugin_dir / wallpaper_id / "manifest.json").write_text(
+            "{}", encoding="utf-8"
+        )
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                command_repair(self.args(), self.suite, self.paths, self.runtime), 0
+            )
+
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(
+            {
+                group: [entry_id(entry) for entry in repaired["bar"]["layout"][group]]
+                for group in ("left", "center", "right")
+            },
+            expected_installed_layout,
+        )
+        repaired_wallpaper = next(
+            entry for entry in repaired["bar"]["layout"]["right"]
+            if entry_id(entry) == wallpaper_id
+        )
+        self.assertEqual(repaired_wallpaper["displayMode"], "fit")
+        self.assertEqual(
+            state_entry(repaired)["shinigami"], expected_user_settings
+        )
+        self.assertEqual(
+            plugin_payload_digest(self.paths.plugin_dir / wallpaper_id),
+            self.suite.plugins[wallpaper_id].payload_digest(),
+        )
+        install_state = load_install_state(self.paths, self.suite)
+        self.assertEqual(install_state["activation"]["mode"], "managed")
+        self.assertEqual(install_state["activation"]["layoutPolicy"], "managed")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(command_status(self.suite, self.paths), 0)
 
     def test_profile_excludes_stock_widgets_and_keeps_third_party_extras(self) -> None:
         base = json.loads(self.defaults.read_text(encoding="utf-8"))
@@ -4878,7 +5036,12 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.runtime.events.clear()
         with patch.object(PluginTransaction, "expose", recording_expose):
             self.assertEqual(
-                command_repair(self.args(), self.suite, self.paths, self.runtime),
+                command_repair(
+                    self.args(restore_layout=True),
+                    self.suite,
+                    self.paths,
+                    self.runtime,
+                ),
                 0,
             )
 
@@ -4892,6 +5055,400 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertNotIn("reload-payload", self.runtime.events)
         self.assertTrue((self.paths.plugin_dir / plugin_id).is_dir())
         self.assertEqual(command_status(self.suite, self.paths), 0)
+
+    def test_verified_626_predecessor_repair_through_complete_cli(self) -> None:
+        identity = next(
+            item for item in supported_install_identities(self.suite)
+            if item["id"] == "source-0.2.5-6263322"
+        )
+        revision = identity["sourceRevisions"][0]
+        self.assertEqual(revision, "6263322d6082c9c07b0e122cdadaada2b3005413")
+        archive = subprocess.run(
+            [
+                "git", "--no-replace-objects", "-C", str(REPO_ROOT),
+                "archive", revision, "--", *identity["pluginIds"],
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        historical_root = self.root / "verified-626-payload"
+        historical_root.mkdir()
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
+            bundle.extractall(historical_root, filter="data")
+        historical_digests = {
+            plugin_id: self.suite.plugins[plugin_id].payload_digest(
+                historical_root / plugin_id
+            )
+            for plugin_id in identity["pluginIds"]
+        }
+        self.assertEqual(historical_digests, identity["pluginDigests"])
+        self.assertEqual(
+            suite_payload_digest(historical_digests), identity["payloadDigest"]
+        )
+
+        historical_layout = {
+            "left": list(self.suite.profile("default").layout["left"]),
+            "center": list(self.suite.profile("default").layout["center"]),
+            "right": [
+                "shinigami.media",
+                "shinigami.quick-access",
+                "shinigami.wallpaper-manager",
+                "shinigami.onedrive",
+                "shinigami.network",
+                "shinigami.power-profile",
+                "shinigami.battery",
+                "shinigami.display-manager",
+                "shinigami.bluetooth",
+                "shinigami.temperature",
+                "shinigami.gpu",
+                "shinigami.storage",
+            ],
+        }
+        self.install()
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        by_id = {
+            entry_id(entry): copy.deepcopy(entry)
+            for region in ("left", "center", "right")
+            for entry in config["bar"]["layout"][region]
+        }
+        by_id["shinigami.wallpaper-manager"] = {
+            "id": "shinigami.wallpaper-manager", "displayMode": "fit"
+        }
+        for region in ("left", "center", "right"):
+            config["bar"]["layout"][region] = [
+                copy.deepcopy(by_id[plugin_id])
+                for plugin_id in historical_layout[region]
+            ]
+        config["bar"]["layout"]["right"].append(
+            copy.deepcopy(by_id["local.extra"])
+        )
+        state_settings = state_entry(config)["shinigami"]
+        state_settings["predecessorRepairPreference"] = {
+            "retain": ["settings", 5, True]
+        }
+        expected_settings = copy.deepcopy(state_settings)
+        expected_layout = copy.deepcopy(config["bar"]["layout"])
+        atomic_write(self.paths.config_file, encode_config(config))
+
+        state = load_install_state(self.paths, self.suite)
+        state["suiteVersion"] = identity["suiteVersion"]
+        state["sourceRevision"] = revision
+        state["payloadDigest"] = identity["payloadDigest"]
+        state["pluginDigests"] = copy.deepcopy(identity["pluginDigests"])
+        state["plugins"] = list(identity["pluginIds"])
+        state["sourceRoot"] = str(historical_root)
+        state["payloadRoot"] = str(historical_root)
+        activation = state["activation"]
+        activation["layout"] = copy.deepcopy(historical_layout)
+        for plugin_id in identity["pluginIds"]:
+            target = self.paths.plugin_dir / plugin_id
+            marker = json.loads(
+                (target / ".shinigami-managed.json").read_text(encoding="utf-8")
+            )
+            transaction_id = marker["transaction"]
+            shutil.rmtree(target)
+            shutil.copytree(historical_root / plugin_id, target, symlinks=True)
+            marker = {
+                "schemaVersion": 1,
+                "suiteId": "hancore.shibumi",
+                "suiteVersion": identity["suiteVersion"],
+                "pluginId": plugin_id,
+                "sourceRevision": revision,
+                "payloadDigest": identity["pluginDigests"][plugin_id],
+                "suitePayloadDigest": identity["payloadDigest"],
+                "transaction": transaction_id,
+            }
+            atomic_write(
+                target / ".shinigami-managed.json",
+                (json.dumps(marker, indent=2) + "\n").encode(),
+            )
+        atomic_write(
+            self.paths.state_dir / "install.json",
+            (json.dumps(state, indent=2) + "\n").encode(),
+        )
+        damaged_manifest = (
+            self.paths.plugin_dir / "shinigami.wallpaper-manager" / "manifest.json"
+        )
+        damaged_manifest.write_text("{}", encoding="utf-8")
+
+        output = io.StringIO()
+        with redirect_stdout(output), redirect_stderr(output):
+            self.assertEqual(self.run_cli_main_isolated(["repair", "--yes"]), 0)
+        self.assertIn("Repaired Shinigami (27 plugins)", output.getvalue())
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(repaired["bar"]["layout"], expected_layout)
+        self.assertEqual(state_entry(repaired)["shinigami"], expected_settings)
+        self.assertEqual(
+            plugin_payload_digest(
+                self.paths.plugin_dir / "shinigami.wallpaper-manager"
+            ),
+            self.suite.plugins["shinigami.wallpaper-manager"].payload_digest(),
+        )
+        repaired_state = load_install_state(self.paths, self.suite)
+        self.assertEqual(repaired_state["activation"]["mode"], "managed")
+        self.assertEqual(repaired_state["activation"]["layoutPolicy"], "managed")
+        status_output = io.StringIO()
+        with redirect_stdout(status_output), redirect_stderr(status_output):
+            self.assertEqual(self.run_cli_main_isolated(["status"]), 0)
+
+    def test_repair_still_rejects_symlinked_managed_plugin_root(self) -> None:
+        self.install()
+        plugin_id = "shinigami.wallpaper-manager"
+        managed_root = self.paths.plugin_dir / plugin_id
+        external_target = self.root / "external-managed-wallpaper"
+        shutil.copytree(managed_root, external_target, symlinks=True)
+        shutil.rmtree(managed_root)
+        managed_root.symlink_to(external_target, target_is_directory=True)
+        original_config = self.paths.config_file.read_bytes()
+        original_state = (self.paths.state_dir / "install.json").read_bytes()
+
+        with self.assertRaisesRegex(
+            TransactionError, "refusing to replace non-Shinigami plugin directory"
+        ):
+            command_repair(self.args(), self.suite, self.paths, self.runtime)
+
+        self.assertTrue(managed_root.is_symlink())
+        self.assertEqual(self.paths.config_file.read_bytes(), original_config)
+        self.assertEqual(
+            (self.paths.state_dir / "install.json").read_bytes(), original_state
+        )
+
+    def test_managed_repair_preserves_symlinked_external_widget(self) -> None:
+        self.install()
+        external_link, external_target, expected_entry = (
+            self.install_external_symlink_widget(
+                extra_options={"thirdPartyOption": {"style": "compact", "scale": 2}}
+            )
+        )
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                command_repair(self.args(), self.suite, self.paths, self.runtime), 0
+            )
+
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        entry = next(
+            entry for entry in repaired["bar"]["layout"]["right"]
+            if entry_id(entry) == "local.extra"
+        )
+        self.assertEqual(entry, expected_entry)
+        self.assertTrue(external_link.is_symlink())
+        self.assertEqual(external_link.resolve(), external_target.resolve())
+        self.assertEqual(
+            (external_target / "BarWidget.qml").read_text(encoding="utf-8"),
+            "Item {}",
+        )
+
+    def test_restore_layout_preserves_symlinked_external_widget(self) -> None:
+        self.install()
+        external_link, external_target, expected_entry = (
+            self.install_external_symlink_widget(
+                extra_options={"thirdPartyOption": {"style": "compact", "scale": 2}}
+            )
+        )
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        wallpaper = next(
+            entry for entry in config["bar"]["layout"]["right"]
+            if entry_id(entry) == "shinigami.wallpaper-manager"
+        )
+        config["bar"]["layout"]["right"].append(copy.deepcopy(wallpaper))
+        atomic_write(self.paths.config_file, encode_config(config))
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                command_repair(
+                    self.args(restore_layout=True),
+                    self.suite,
+                    self.paths,
+                    self.runtime,
+                ),
+                0,
+            )
+
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        right = repaired["bar"]["layout"]["right"]
+        expected_ids = list(self.suite.profile("default").layout["right"])
+        expected_ids.append("local.extra")
+        self.assertEqual([entry_id(entry) for entry in right], expected_ids)
+        self.assertEqual(
+            next(entry for entry in right if entry_id(entry) == "local.extra"),
+            expected_entry,
+        )
+        self.assertTrue(external_link.is_symlink())
+        self.assertEqual(external_link.resolve(), external_target.resolve())
+        self.assertEqual(command_status(self.suite, self.paths), 0)
+
+    def test_managed_repair_preserves_current_layout_order_by_default(self) -> None:
+        self.install()
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        right = config["bar"]["layout"]["right"]
+        wallpaper = next(
+            entry for entry in right
+            if entry_id(entry) == "shinigami.wallpaper-manager"
+        )
+        right.remove(wallpaper)
+        right.append({**wallpaper, "displayMode": "fit"})
+        self.assertEqual(entry_id(right[-1]), "shinigami.wallpaper-manager")
+        expected_layout = copy.deepcopy(config["bar"]["layout"])
+        settings = state_entry(config)["shinigami"]
+        settings["userRepairSetting"] = {"keep": ["order", 7, False]}
+        expected_settings = copy.deepcopy(settings)
+        repaired_plugin = "shinigami.wallpaper-manager"
+        installed_manifest = self.paths.plugin_dir / repaired_plugin / "manifest.json"
+        installed_manifest.write_text("{}", encoding="utf-8")
+        atomic_write(self.paths.config_file, encode_config(config))
+
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(
+                command_repair(
+                    self.args(),
+                    self.suite,
+                    self.paths,
+                    self.runtime,
+                ),
+                0,
+            )
+
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        state = load_install_state(self.paths, self.suite)
+        self.assertEqual(
+            plugin_payload_digest(self.paths.plugin_dir / repaired_plugin),
+            self.suite.plugins[repaired_plugin].payload_digest(),
+        )
+        self.assertEqual(repaired["bar"]["layout"], expected_layout)
+        self.assertEqual(state_entry(repaired)["shinigami"], expected_settings)
+        self.assertEqual(repaired["bar"]["id"], "shinigami.bar")
+        self.assertEqual(repaired["bar"]["style"], "shinigami")
+        self.assertEqual(state["activation"]["mode"], "managed")
+        self.assertEqual(state["activation"]["layoutPolicy"], "managed")
+        self.assertEqual(command_status(self.suite, self.paths), 0)
+
+    def test_managed_repair_rejects_duplicate_membership_until_restore_layout(self) -> None:
+        self.install()
+        config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        wallpaper = next(
+            entry for entry in config["bar"]["layout"]["right"]
+            if entry_id(entry) == "shinigami.wallpaper-manager"
+        )
+        config["bar"]["layout"]["right"].append(copy.deepcopy(wallpaper))
+        atomic_write(self.paths.config_file, encode_config(config))
+        malformed_config = self.paths.config_file.read_bytes()
+        original_state = (self.paths.state_dir / "install.json").read_bytes()
+        original_digest = plugin_payload_digest(
+            self.paths.plugin_dir / "shinigami.wallpaper-manager"
+        )
+        stops_before = self.runtime.stops
+
+        with self.assertRaisesRegex(CliError, "duplicate entry.*--restore-layout"):
+            command_repair(self.args(), self.suite, self.paths, self.runtime)
+        self.assertEqual(self.runtime.stops, stops_before)
+        self.assertEqual(self.paths.config_file.read_bytes(), malformed_config)
+        self.assertEqual(
+            (self.paths.state_dir / "install.json").read_bytes(), original_state
+        )
+        self.assertEqual(
+            plugin_payload_digest(
+                self.paths.plugin_dir / "shinigami.wallpaper-manager"
+            ),
+            original_digest,
+        )
+
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                command_repair(
+                    self.args(restore_layout=True),
+                    self.suite,
+                    self.paths,
+                    self.runtime,
+                ),
+                0,
+            )
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        right_ids = [
+            entry_id(entry) for entry in repaired["bar"]["layout"]["right"]
+        ]
+        expected_right = list(self.suite.profile("default").layout["right"])
+        expected_right.append("local.extra")
+        self.assertEqual(right_ids, expected_right)
+        self.assertEqual(len(right_ids), len(set(right_ids)))
+        self.assertEqual(command_status(self.suite, self.paths), 0)
+
+    def test_managed_repair_uses_post_stop_layout_snapshot(self) -> None:
+        self.install()
+        stops_before = self.runtime.stops
+        restarts_before = self.runtime.restarts
+        original_stop = self.runtime.stop_shell
+        expected_layout: dict[str, Any] = {}
+
+        def stop_then_customize() -> None:
+            nonlocal expected_layout
+            original_stop()
+            config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+            right = config["bar"]["layout"]["right"]
+            wallpaper = next(
+                entry for entry in right
+                if entry_id(entry) == "shinigami.wallpaper-manager"
+            )
+            right.remove(wallpaper)
+            right.append({**wallpaper, "displayMode": "fit"})
+            expected_layout = copy.deepcopy(config["bar"]["layout"])
+            atomic_write(self.paths.config_file, encode_config(config))
+
+        with (
+            patch.object(self.runtime, "stop_shell", side_effect=stop_then_customize),
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(
+                command_repair(self.args(), self.suite, self.paths, self.runtime), 0
+            )
+        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+        self.assertEqual(repaired["bar"]["layout"], expected_layout)
+        self.assertEqual(self.runtime.stops, stops_before + 1)
+        self.assertEqual(self.runtime.restarts, restarts_before + 1)
+        self.assertTrue(self.runtime.shell_running)
+
+    def test_post_stop_duplicate_layout_aborts_and_rolls_back_to_snapshot(self) -> None:
+        self.install()
+        original_state = (self.paths.state_dir / "install.json").read_bytes()
+        original_digests = {
+            plugin_id: plugin_payload_digest(self.paths.plugin_dir / plugin_id)
+            for plugin_id in self.suite.profile("default").install
+        }
+        original_stop = self.runtime.stop_shell
+        post_stop_bytes = b""
+
+        def stop_then_duplicate() -> None:
+            nonlocal post_stop_bytes
+            original_stop()
+            config = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
+            duplicate = copy.deepcopy(
+                next(
+                    entry for entry in config["bar"]["layout"]["right"]
+                    if entry_id(entry) == "shinigami.wallpaper-manager"
+                )
+            )
+            config["bar"]["layout"]["right"].append(duplicate)
+            atomic_write(self.paths.config_file, encode_config(config))
+            post_stop_bytes = self.paths.config_file.read_bytes()
+
+        with patch.object(self.runtime, "stop_shell", side_effect=stop_then_duplicate):
+            with self.assertRaisesRegex(CliError, "duplicate entry.*--restore-layout"):
+                command_repair(self.args(), self.suite, self.paths, self.runtime)
+
+        self.assertEqual(self.paths.config_file.read_bytes(), post_stop_bytes)
+        self.assertEqual(
+            (self.paths.state_dir / "install.json").read_bytes(), original_state
+        )
+        self.assertEqual(
+            {
+                plugin_id: plugin_payload_digest(self.paths.plugin_dir / plugin_id)
+                for plugin_id in self.suite.profile("default").install
+            },
+            original_digests,
+        )
+        self.assertTrue(self.runtime.shell_running)
+        self.assertFalse(self.hidden_transaction_paths())
 
     def test_repair_restores_plugin_removed_by_generic_plugin_manager(self) -> None:
         self.install()
@@ -4920,7 +5477,12 @@ class SuiteLifecycleTests(unittest.TestCase):
             command_update(self.args(), self.suite, self.paths, self.runtime)
 
         self.assertEqual(
-            command_repair(self.args(), self.suite, self.paths, self.runtime),
+            command_repair(
+                self.args(restore_layout=True),
+                self.suite,
+                self.paths,
+                self.runtime,
+            ),
             0,
         )
         self.assertTrue((self.paths.plugin_dir / plugin_id).is_dir())
@@ -5037,7 +5599,12 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertIn(f"unexpected widgets: {plugin_id}", output.getvalue())
 
         self.assertEqual(
-            command_repair(self.args(), self.suite, self.paths, self.runtime),
+            command_repair(
+                self.args(restore_layout=True),
+                self.suite,
+                self.paths,
+                self.runtime,
+            ),
             0,
         )
         repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))

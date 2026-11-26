@@ -13,6 +13,7 @@ from typing import Any
 from . import STATE_SCHEMA_VERSION, SUITE_ID
 from .admission import (
     AdmissionError,
+    PLUGIN_ID_PATTERN,
     UnsupportedInstallIdentity,
     preflight_lifecycle_state,
     require_current_payload_identity,
@@ -26,6 +27,8 @@ from .config import (
     migrate_legacy_config,
     migrate_state_settings,
     native_sections,
+    NATIVE_SECTIONS,
+    REGIONS,
     validate_state_settings,
     parse_config_bytes,
     read_config,
@@ -515,6 +518,115 @@ def activation_drift(
             f"unexpected services: {', '.join(sorted(unexpected_services))}"
         )
     return drift
+
+
+def _external_widget_available(plugin_dir: Path, plugin_id: str) -> bool:
+    """Match install-time availability for unmanaged plugin roots only."""
+    path = plugin_dir / plugin_id
+    return path.is_symlink() or path.is_dir()
+
+
+def managed_repair_layout_issue(
+    config: dict[str, Any],
+    suite: Suite,
+    profile: Any,
+    plugin_dir: Path,
+) -> str | None:
+    """Refuse to preserve a managed layout with ambiguous membership."""
+    bar = config.get("bar")
+    layout = bar.get("layout") if isinstance(bar, dict) else None
+    if not isinstance(layout, dict):
+        return "managed widget layout is malformed"
+    try:
+        sections = native_sections(layout)
+    except ConfigError:
+        return "managed widget layout regions are malformed"
+
+    expected = {
+        plugin_id
+        for region in REGIONS
+        for plugin_id in profile.layout[region]
+    }
+    seen: set[str] = set()
+    managed_seen: set[str] = set()
+    for region in sections:
+        entries = layout.get(region, [])
+        if not isinstance(entries, list):
+            return f"managed widget layout region {region} is malformed"
+        for entry in entries:
+            plugin_id = entry_id(entry)
+            if not PLUGIN_ID_PATTERN.fullmatch(plugin_id):
+                return f"managed widget layout contains an invalid entry in {region}"
+            if plugin_id in seen:
+                return f"managed widget layout contains duplicate entry {plugin_id}"
+            seen.add(plugin_id)
+            spec = suite.plugins.get(plugin_id)
+            if spec is not None:
+                if not spec.is_bar_widget or plugin_id not in expected:
+                    return f"managed widget layout contains unexpected suite entry {plugin_id}"
+                managed_seen.add(plugin_id)
+                continue
+            if plugin_id in suite.retired_plugins or plugin_id.startswith("omarchy."):
+                return f"managed widget layout contains unsupported entry {plugin_id}"
+            if not _external_widget_available(plugin_dir, plugin_id):
+                return f"managed widget layout references unavailable external widget {plugin_id}"
+
+    missing = expected - managed_seen
+    if missing:
+        return "managed widget layout is missing suite widgets: " + ", ".join(sorted(missing))
+    return None
+
+
+def repair_layout_reset_config(
+    config: dict[str, Any],
+    suite: Suite,
+    profile: Any,
+    plugin_dir: Path,
+) -> dict[str, Any]:
+    """Prepare a canonical managed reset while retaining valid external entries."""
+    result = copy.deepcopy(config)
+    bar = result.get("bar")
+    if not isinstance(bar, dict):
+        bar = {}
+        result["bar"] = bar
+    old_layout = bar.get("layout")
+    if not isinstance(old_layout, dict):
+        old_layout = {}
+    expected = {
+        plugin_id
+        for region in REGIONS
+        for plugin_id in profile.layout[region]
+    }
+    sanitized: dict[str, list[Any]] = {region: [] for region in REGIONS}
+    seen: set[str] = set()
+    for region in NATIVE_SECTIONS:
+        entries = old_layout.get(region, [])
+        if not isinstance(entries, list):
+            entries = []
+        kept: list[Any] = []
+        for entry in entries:
+            plugin_id = entry_id(entry)
+            if not PLUGIN_ID_PATTERN.fullmatch(plugin_id) or plugin_id in seen:
+                continue
+            spec = suite.plugins.get(plugin_id)
+            if spec is not None:
+                if not spec.is_bar_widget or plugin_id not in expected or region not in REGIONS:
+                    continue
+            elif (
+                plugin_id in suite.retired_plugins
+                or plugin_id.startswith("omarchy.")
+                or not _external_widget_available(plugin_dir, plugin_id)
+            ):
+                continue
+            seen.add(plugin_id)
+            kept.append(copy.deepcopy(entry))
+        if region in REGIONS or region in old_layout:
+            sanitized[region] = kept
+    bar["layout"] = sanitized
+    state = state_entry(result)
+    if state is not None:
+        state.pop("shinigamiRetainedLayout", None)
+    return result
 
 
 def runtime_enabled_plugin_ids(
@@ -1022,6 +1134,11 @@ def command_repair(
     current, _ = read_config(paths.config_file, paths.defaults_file)
     defaults, _ = read_config(paths.defaults_file, paths.defaults_file)
     external = external_activation(state, current)
+    restore_layout = bool(getattr(args, "restore_layout", False))
+    if restore_layout and external:
+        raise CliError(
+            "--restore-layout applies only to managed repairs; external repairs already preserve layout"
+        )
     aliases = archived_plugin_aliases(suite)
     installed_ids = set(state["plugins"])
     archived_state = any(plugin_id in aliases for plugin_id in installed_ids)
@@ -1035,24 +1152,47 @@ def command_repair(
         | retired_live_ids
         | ((installed_ids & set(aliases)) - set(suite.plugins))
     )
-    # Archived roots remain the previous IDs for config reconciliation: every
-    # current ID is therefore introduced and written under its new namespace.
     current_installed = installed_ids - retired_live_ids
+
     def desired_for(config: dict[str, Any]) -> dict[str, Any]:
+        preserved_layout: dict[str, Any] | None = None
+        profile_config = config
+        if not external:
+            if restore_layout:
+                profile_config = repair_layout_reset_config(
+                    config, suite, profile, paths.plugin_dir
+                )
+            else:
+                issue = managed_repair_layout_issue(
+                    config, suite, profile, paths.plugin_dir
+                )
+                if issue:
+                    raise CliError(
+                        f"{issue}; run 'shinigami-suite repair --restore-layout' "
+                        "to rebuild managed membership"
+                    )
+                preserved_layout = copy.deepcopy(config["bar"]["layout"])
         if state.get("settingsStorageVersion") == 1:
-            config = migrate_state_settings(config, import_legacy=False)
-        return remove_plugin_ids((
+            profile_config = migrate_state_settings(
+                profile_config, import_legacy=False
+            )
+        desired = (
             preserve_external_bar(
-                config,
+                profile_config,
                 profile,
                 migrate_storage=suite.settings_storage_version == 1,
             )
             if external
             else apply_identity_contract(
-                apply_profile(config, profile, suite.plugins, paths.plugin_dir),
+                apply_profile(
+                    profile_config, profile, suite.plugins, paths.plugin_dir
+                ),
                 migrate_storage=suite.settings_storage_version == 1,
             )
-        ), retired_config_ids)
+        )
+        if preserved_layout is not None:
+            desired["bar"]["layout"] = preserved_layout
+        return remove_plugin_ids(desired, retired_config_ids)
 
     desired = desired_for(current)
     adoptable_plugin_ids = current_installed
@@ -1072,7 +1212,10 @@ def command_repair(
         "Repair the complete Shinigami payload"
         + (
             " while keeping the current bar and layout"
-            if external else " and restore its managed layout"
+            if external else
+            " and restore the canonical managed layout"
+            if restore_layout else
+            " while keeping the current healthy managed layout"
         ),
         args.yes,
     )
@@ -1133,7 +1276,10 @@ def command_repair(
         f"Repaired Shinigami ({len(specs)} plugins)"
         + (
             "; kept the current bar and layout."
-            if external else " and restored its managed layout."
+            if external else
+            "; restored the canonical managed layout."
+            if restore_layout else
+            "; kept the current healthy managed layout."
         )
     )
     return 0
@@ -1710,6 +1856,11 @@ def parser() -> argparse.ArgumentParser:
     )
     repair.add_argument("--dry-run", action="store_true")
     repair.add_argument("--yes", "-y", action="store_true")
+    repair.add_argument(
+        "--restore-layout",
+        action="store_true",
+        help="restore canonical managed layout and membership",
+    )
     repair.add_argument(
         "--allow-downgrade",
         action="store_true",
