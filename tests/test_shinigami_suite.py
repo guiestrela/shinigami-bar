@@ -1940,6 +1940,8 @@ class SuiteLifecycleTests(unittest.TestCase):
             source_revision = "41002a830027faaac2a8436eea6f6aae0dcca4b5"
         if source_revision is None and version == "0.2.4":
             source_revision = "12763c6874a9af02fa8e038ab520a409c60f8dc2"
+        if source_revision is None and version == "0.2.5":
+            source_revision = "4dff56283eca2c880b04df163102a91f9a52561c"
         suite_contract_path = self.source / "contracts/plugin-suite-v1.json"
         suite_contract = json.loads(suite_contract_path.read_text(encoding="utf-8"))
         current_plugin_ids = [item["id"] for item in suite_contract["plugins"]]
@@ -1947,6 +1949,20 @@ class SuiteLifecycleTests(unittest.TestCase):
         if source_revision is not None:
             for plugin_id in current_plugin_ids:
                 shutil.rmtree(self.source / plugin_id, ignore_errors=True)
+            current_package_fixture = (
+                version == "0.2.5"
+                and source_revision == "4dff56283eca2c880b04df163102a91f9a52561c"
+            )
+            archive_paths = (
+                [*plugin_ids_at_revision(source_revision)]
+                if current_package_fixture
+                else [
+                    *plugin_ids_at_revision(source_revision),
+                    "contracts/plugin-suite-v1.json",
+                    "contracts/lifecycle-predecessors-v1.json",
+                    "packaging/package-metadata.json",
+                ]
+            )
             archive = subprocess.run(
                 [
                     "git",
@@ -1956,55 +1972,53 @@ class SuiteLifecycleTests(unittest.TestCase):
                     "archive",
                     source_revision,
                     "--",
-                    *plugin_ids_at_revision(source_revision),
-                    "contracts/plugin-suite-v1.json",
-                    "contracts/lifecycle-predecessors-v1.json",
-                    "packaging/package-metadata.json",
+                    *archive_paths,
                 ],
                 check=True,
                 stdout=subprocess.PIPE,
             ).stdout
             with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as bundle:
                 bundle.extractall(self.source, filter="data")
-            # The historical contract predates later commit-to-identity
-            # bindings. Merge those bindings from the authoritative current
-            # contract so the projected payload remains exactly identifiable.
-            predecessor_path = (
-                self.source / "contracts/lifecycle-predecessors-v1.json"
-            )
-            predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
-            current_predecessor = json.loads(
-                (REPO_ROOT / "contracts/lifecycle-predecessors-v1.json").read_text(
-                    encoding="utf-8"
+            if not current_package_fixture:
+                # The historical contract predates later commit-to-identity
+                # bindings. Merge those bindings from the authoritative current
+                # contract so the projected payload remains exactly identifiable.
+                predecessor_path = (
+                    self.source / "contracts/lifecycle-predecessors-v1.json"
                 )
-            )
-
-            def identity_key(item: dict[str, object]) -> tuple[object, ...]:
-                return (
-                    item["suiteVersion"],
-                    item["payloadDigest"],
-                    tuple(item["pluginIds"]),
-                    tuple(sorted(item["pluginDigests"].items())),
-                    item["settingsStorageVersion"],
+                predecessor = json.loads(predecessor_path.read_text(encoding="utf-8"))
+                current_predecessor = json.loads(
+                    (REPO_ROOT / "contracts/lifecycle-predecessors-v1.json").read_text(
+                        encoding="utf-8"
+                    )
                 )
 
-            revisions_by_identity: dict[tuple[object, ...], list[str]] = {}
-            for item in current_predecessor["states"]:
-                revisions_by_identity.setdefault(identity_key(item), []).extend(
-                    item["sourceRevisions"]
+                def identity_key(item: dict[str, object]) -> tuple[object, ...]:
+                    return (
+                        item["suiteVersion"],
+                        item["payloadDigest"],
+                        tuple(item["pluginIds"]),
+                        tuple(sorted(item["pluginDigests"].items())),
+                        item["settingsStorageVersion"],
+                    )
+
+                revisions_by_identity: dict[tuple[object, ...], list[str]] = {}
+                for item in current_predecessor["states"]:
+                    revisions_by_identity.setdefault(identity_key(item), []).extend(
+                        item["sourceRevisions"]
+                    )
+                for item in predecessor["states"]:
+                    known = revisions_by_identity.get(identity_key(item), [])
+                    item["sourceRevisions"] = list(
+                        dict.fromkeys([*item["sourceRevisions"], *known])
+                    )
+                predecessor_path.write_text(
+                    json.dumps(predecessor, indent=2) + "\n", encoding="utf-8"
                 )
-            for item in predecessor["states"]:
-                known = revisions_by_identity.get(identity_key(item), [])
-                item["sourceRevisions"] = list(
-                    dict.fromkeys([*item["sourceRevisions"], *known])
+                metadata_source = self.source / "packaging/package-metadata.json"
+                suite_contract = json.loads(
+                    suite_contract_path.read_text(encoding="utf-8")
                 )
-            predecessor_path.write_text(
-                json.dumps(predecessor, indent=2) + "\n", encoding="utf-8"
-            )
-            metadata_source = self.source / "packaging/package-metadata.json"
-            suite_contract = json.loads(
-                suite_contract_path.read_text(encoding="utf-8")
-            )
 
         metadata_path = self.source / "PACKAGE-METADATA.json"
         shutil.copy2(metadata_source, metadata_path)
