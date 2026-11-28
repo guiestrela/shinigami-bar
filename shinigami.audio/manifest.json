@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.audio",
   "name": "Shinigami Audio",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami audio presentation over Omarchy's PipeWire owner.",

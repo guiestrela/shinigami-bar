@@ -1418,7 +1418,7 @@ class SuiteLifecycleTests(unittest.TestCase):
             "public-beta.14.1",
         )
 
-    def assert_published_checkout_can_update_from_tag(
+    def assert_published_checkout_refuses_candidate_downgrade_from_tag(
         self, tag: str, revision: str, identity_id: str
     ) -> None:
         source_root = self.root / "published-tag-source"
@@ -1456,41 +1456,47 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(
             preflight_lifecycle_state(self.paths, self.suite), identity_id
         )
-        self.assertEqual(
-            command_update(self.args(), self.suite, self.paths, self.runtime), 0
-        )
-        updated = load_install_state(self.paths, self.suite)
-        self.assertEqual(updated["suiteVersion"], self.suite.version)
-        self.assertEqual(updated["installOrigin"], "checkout")
-        self.assertNotEqual(updated["sourceRevision"], revision)
+        self.assertLess(version_key(self.suite.version), version_key(published.version))
+        state_path = self.paths.state_dir / "install.json"
+        state_before = state_path.read_bytes()
+        config_before = self.paths.config_file.read_bytes()
+        plugins_before = self.tree_snapshot(self.paths.plugin_dir)
+        activity_before = self.runtime_activity_snapshot()
+        with self.assertRaisesRegex(CliError, "refusing downgrade"):
+            command_update(self.args(), self.suite, self.paths, self.runtime)
+        self.assertEqual(state_path.read_bytes(), state_before)
+        self.assertEqual(self.paths.config_file.read_bytes(), config_before)
+        self.assertEqual(self.tree_snapshot(self.paths.plugin_dir), plugins_before)
+        self.assertEqual(self.runtime_activity_snapshot(), activity_before)
+        self.assertEqual(preflight_lifecycle_state(self.paths, self.suite), identity_id)
 
-    def test_published_beta15_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta15_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.15", PUBLISHED_BETA15_REVISION, "public-beta.15"
         )
 
-    def test_published_beta151_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta151_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.15.1", PUBLISHED_BETA151_REVISION, "public-beta.15.1"
         )
 
-    def test_published_beta152_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta152_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.15.2", PUBLISHED_BETA152_REVISION, "public-beta.15.2"
         )
 
-    def test_published_beta153_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta153_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.15.3", PUBLISHED_BETA153_REVISION, "public-beta.15.3"
         )
 
-    def test_published_beta154_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta154_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.15.4", PUBLISHED_BETA154_REVISION, "public-beta.15.4"
         )
 
-    def test_published_beta16_checkout_can_update_from_its_tag(self) -> None:
-        self.assert_published_checkout_can_update_from_tag(
+    def test_published_beta16_checkout_refuses_candidate_downgrade(self) -> None:
+        self.assert_published_checkout_refuses_candidate_downgrade_from_tag(
             "v0.1.1-beta.16", PUBLISHED_BETA16_REVISION, "public-beta.16"
         )
 
@@ -2073,6 +2079,30 @@ class SuiteLifecycleTests(unittest.TestCase):
         )
         return Suite.load(self.source)
 
+    def install_supported_historical_package_for_rollback(self) -> Suite:
+        # Keep a candidate package snapshot separate from the historical
+        # payload that command_install places in the isolated runtime paths.
+        self.packaged_suite()
+        candidate_root = self.root / "rollback-candidate"
+        shutil.copytree(self.source, candidate_root)
+        candidate_suite = Suite.load(candidate_root)
+        self.assertEqual(candidate_suite.version, CURRENT_VERSION)
+        self.assertEqual(candidate_suite.revision(), f"package:{CURRENT_VERSION}")
+
+        historical_suite = self.packaged_suite(version="0.2.5")
+        self.assertEqual(historical_suite.version, "0.2.5")
+        self.assertEqual(historical_suite.revision(), "package:0.2.5")
+        self.assertEqual(
+            command_install(
+                self.args(), historical_suite, self.paths, self.runtime
+            ),
+            0,
+        )
+        self.assertEqual(
+            preflight_lifecycle_state(self.paths, candidate_suite), "public-0.2.5"
+        )
+        return candidate_suite
+
     def create_quattro_host_contract(self) -> None:
         bin_dir = self.paths.omarchy_root / "bin"
         bin_dir.mkdir(parents=True, exist_ok=True)
@@ -2121,6 +2151,27 @@ class SuiteLifecycleTests(unittest.TestCase):
                 ):
                     with patch.object(self.suite, "revision", return_value="f" * 40):
                         return suite_main(argv)
+
+    def run_packaged_cli_main_isolated(
+        self, argv: list[str], suite: Suite
+    ) -> int:
+        self.create_quattro_host_contract()
+        environment = {
+            "OMARCHY_PATH": str(self.paths.omarchy_root),
+            "SHINIGAMI_DEFAULT_CONFIG": str(self.paths.defaults_file),
+            "SHINIGAMI_CONFIG_FILE": str(self.paths.config_file),
+            "SHINIGAMI_PLUGIN_DIR": str(self.paths.plugin_dir),
+            "SHINIGAMI_STATE_DIR": str(self.paths.state_dir),
+            "SHINIGAMI_CACHE_DIR": str(self.paths.cache_dir),
+            "SHINIGAMI_LOCK_FILE": str(self.paths.lock_file),
+        }
+        with patch.dict(os.environ, environment):
+            with patch("shinigami_suite.cli.Suite.load", return_value=suite):
+                with patch(
+                    "shinigami_suite.cli.OmarchyRuntime",
+                    return_value=self.runtime,
+                ):
+                    return suite_main(argv)
 
     def prepare_legacy_install(self) -> dict[str, object]:
         self.paths.plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -2470,7 +2521,7 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(package_state["packageVersion"], CURRENT_VERSION)
         self.assertNotIn("sourceRoot", package_state)
 
-    def test_sandbox_update_advances_beta_7_to_beta_9(self) -> None:
+    def test_sandbox_update_refuses_candidate_downgrade_from_beta_7(self) -> None:
         beta7_source = self.root / "beta7-source"
         beta7_source.mkdir()
         archive = subprocess.run(
@@ -2512,53 +2563,22 @@ class SuiteLifecycleTests(unittest.TestCase):
         }
         atomic_write(self.paths.config_file, encode_config(config))
         state_before = self.managed_state_snapshot()
+        config_before = self.paths.config_file.read_bytes()
+        plugins_before = self.tree_snapshot(self.paths.plugin_dir)
         activity_before = self.runtime_activity_snapshot()
         self.assertEqual(self.hidden_transaction_paths(), [])
 
-        self.assertEqual(
+        with self.assertRaisesRegex(
+            CliError, "refusing downgrade from 0.1.1-beta.7 to 0.0.1"
+        ):
             command_update(
-                self.args(dry_run=True),
-                self.suite,
-                self.paths,
-                self.runtime,
-            ),
-            0,
-        )
+                self.args(dry_run=True), self.suite, self.paths, self.runtime
+            )
         self.assertEqual(self.managed_state_snapshot(), state_before)
+        self.assertEqual(self.paths.config_file.read_bytes(), config_before)
+        self.assertEqual(self.tree_snapshot(self.paths.plugin_dir), plugins_before)
         self.assertEqual(self.runtime_activity_snapshot(), activity_before)
         self.assertEqual(self.hidden_transaction_paths(), [])
-
-        self.assertEqual(
-            command_update(self.args(), self.suite, self.paths, self.runtime),
-            0,
-        )
-        updated = load_install_state(self.paths, self.suite)
-        updated_config = json.loads(
-            self.paths.config_file.read_text(encoding="utf-8")
-        )
-        expected_digests = {
-            plugin_id: spec.payload_digest()
-            for plugin_id, spec in self.suite.plugins.items()
-        }
-        self.assertEqual(updated["suiteVersion"], CURRENT_VERSION)
-        self.assertEqual(updated["sourceRoot"], str(self.source.resolve()))
-        self.assertEqual(updated["pluginDigests"], expected_digests)
-        self.assertEqual(len(updated["plugins"]), len(expected_digests))
-        self.assertEqual(
-            state_entry(updated_config)["shinigami"]["layoutProtection"],
-            {"v1": True, "v2": False},
-        )
-        control_plugin = self.runtime.list_plugins()[control_id]
-        self.assertTrue(control_plugin["enabled"])
-        self.assertIn("service", control_plugin["kinds"])
-        self.assertEqual(self.hidden_transaction_paths(), [])
-        for plugin_id in updated["plugins"]:
-            manifest = json.loads(
-                (self.paths.plugin_dir / plugin_id / "manifest.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            self.assertEqual(manifest["version"], CURRENT_VERSION)
 
     def test_locked_update_discards_staging_without_live_reconciliation(self) -> None:
         self.install()
@@ -2798,46 +2818,33 @@ class SuiteLifecycleTests(unittest.TestCase):
                     version_key(invalid)
 
     def test_update_refuses_package_downgrade_without_mutation(self) -> None:
-        suite = self.packaged_suite()
-        self.assertEqual(
-            command_install(self.args(), suite, self.paths, self.runtime),
-            0,
-        )
+        suite = self.install_supported_historical_package_for_rollback()
         state_path = self.paths.state_dir / "install.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        newer_version = "0.3.0"
-        self.assertGreater(version_key(newer_version), version_key(CURRENT_VERSION))
-        state["suiteVersion"] = newer_version
-        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
         state_before = state_path.read_bytes()
         config_before = self.paths.config_file.read_bytes()
+        plugins_before = self.tree_snapshot(self.paths.plugin_dir)
 
-        with self.assertRaisesRegex(CliError, "refusing downgrade"):
-            command_update(self.args(), suite, self.paths, self.runtime)
+        error = io.StringIO()
+        with redirect_stderr(error):
+            result = self.run_packaged_cli_main_isolated(
+                ["update", "--dry-run"], suite
+            )
 
+        self.assertEqual(result, 1)
+        self.assertIn("refusing downgrade from 0.2.5 to 0.0.1", error.getvalue())
         self.assertEqual(state_path.read_bytes(), state_before)
         self.assertEqual(self.paths.config_file.read_bytes(), config_before)
+        self.assertEqual(self.tree_snapshot(self.paths.plugin_dir), plugins_before)
+        self.assertEqual(
+            preflight_lifecycle_state(self.paths, suite), "public-0.2.5"
+        )
 
     def test_explicit_package_rollback_stages_older_payload_transactionally(self) -> None:
-        suite = self.packaged_suite()
-        self.assertEqual(
-            command_install(self.args(), suite, self.paths, self.runtime),
-            0,
-        )
-        state_path = self.paths.state_dir / "install.json"
-        state = json.loads(state_path.read_text(encoding="utf-8"))
-        newer_version = "0.3.0"
-        self.assertGreater(version_key(newer_version), version_key(CURRENT_VERSION))
-        state["suiteVersion"] = newer_version
-        state["packageVersion"] = newer_version
-        state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        suite = self.install_supported_historical_package_for_rollback()
 
         self.assertEqual(
-            command_update(
-                self.args(allow_downgrade=True),
-                suite,
-                self.paths,
-                self.runtime,
+            self.run_packaged_cli_main_isolated(
+                ["update", "--allow-downgrade", "--yes"], suite
             ),
             0,
         )
@@ -2846,6 +2853,9 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertEqual(rolled_back["suiteVersion"], CURRENT_VERSION)
         self.assertEqual(rolled_back["packageVersion"], CURRENT_VERSION)
         self.assertEqual(rolled_back["sourceRevision"], f"package:{CURRENT_VERSION}")
+        self.assertEqual(
+            preflight_lifecycle_state(self.paths, suite), CURRENT_ID
+        )
 
     def test_rescan_uses_shell_ipc_contract(self) -> None:
         runtime = OmarchyRuntime()
@@ -5056,7 +5066,9 @@ class SuiteLifecycleTests(unittest.TestCase):
         self.assertTrue((self.paths.plugin_dir / plugin_id).is_dir())
         self.assertEqual(command_status(self.suite, self.paths), 0)
 
-    def test_verified_626_predecessor_repair_through_complete_cli(self) -> None:
+    def test_verified_626_predecessor_default_repair_refuses_candidate_downgrade(
+        self,
+    ) -> None:
         identity = next(
             item for item in supported_install_identities(self.suite)
             if item["id"] == "source-0.2.5-6263322"
@@ -5126,8 +5138,6 @@ class SuiteLifecycleTests(unittest.TestCase):
         state_settings["predecessorRepairPreference"] = {
             "retain": ["settings", 5, True]
         }
-        expected_settings = copy.deepcopy(state_settings)
-        expected_layout = copy.deepcopy(config["bar"]["layout"])
         atomic_write(self.paths.config_file, encode_config(config))
 
         state = load_install_state(self.paths, self.suite)
@@ -5171,27 +5181,39 @@ class SuiteLifecycleTests(unittest.TestCase):
         )
         damaged_manifest.write_text("{}", encoding="utf-8")
 
+        candidate_suite = self.packaged_suite()
+        self.assertEqual(
+            preflight_lifecycle_state(
+                self.paths, candidate_suite, allow_payload_repair=True
+            ),
+            identity["id"],
+        )
+        state_path = self.paths.state_dir / "install.json"
+        state_before = state_path.read_bytes()
+        config_before = self.paths.config_file.read_bytes()
+        plugins_before = self.tree_snapshot(self.paths.plugin_dir)
+        activity_before = self.runtime_activity_snapshot()
         output = io.StringIO()
         with redirect_stdout(output), redirect_stderr(output):
-            self.assertEqual(self.run_cli_main_isolated(["repair", "--yes"]), 0)
-        self.assertIn("Repaired Shinigami (27 plugins)", output.getvalue())
-        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
-        self.assertEqual(repaired["bar"]["layout"], expected_layout)
-        self.assertEqual(state_entry(repaired)["shinigami"], expected_settings)
+            result = self.run_packaged_cli_main_isolated(
+                ["repair", "--yes"], candidate_suite
+            )
+        self.assertEqual(result, 1)
+        self.assertIn("refusing downgrade from 0.2.5 to 0.0.1", output.getvalue())
+        self.assertEqual(state_path.read_bytes(), state_before)
+        self.assertEqual(self.paths.config_file.read_bytes(), config_before)
+        self.assertEqual(self.tree_snapshot(self.paths.plugin_dir), plugins_before)
+        self.assertEqual(self.runtime_activity_snapshot(), activity_before)
         self.assertEqual(
-            plugin_payload_digest(
-                self.paths.plugin_dir / "shinigami.wallpaper-manager"
+            preflight_lifecycle_state(
+                self.paths, candidate_suite, allow_payload_repair=True
             ),
-            self.suite.plugins["shinigami.wallpaper-manager"].payload_digest(),
+            identity["id"],
         )
-        repaired_state = load_install_state(self.paths, self.suite)
-        self.assertEqual(repaired_state["activation"]["mode"], "managed")
-        self.assertEqual(repaired_state["activation"]["layoutPolicy"], "managed")
-        status_output = io.StringIO()
-        with redirect_stdout(status_output), redirect_stderr(status_output):
-            self.assertEqual(self.run_cli_main_isolated(["status"]), 0)
 
-    def test_verified_8c_predecessor_repair_through_complete_cli(self) -> None:
+    def test_verified_8c_predecessor_default_repair_refuses_candidate_downgrade(
+        self,
+    ) -> None:
         identity = next(
             item for item in supported_install_identities(self.suite)
             if item["id"] == "source-0.2.5-8c4364c"
@@ -5232,8 +5254,6 @@ class SuiteLifecycleTests(unittest.TestCase):
         right[index] = {**wallpaper, "displayMode": "fit"}
         settings = state_entry(config)["shinigami"]
         settings["predecessorRepairPreference"] = {"retain": ["8c", True]}
-        expected_layout = copy.deepcopy(config["bar"]["layout"])
-        expected_settings = copy.deepcopy(settings)
         atomic_write(self.paths.config_file, encode_config(config))
 
         state = load_install_state(self.paths, self.suite)
@@ -5272,21 +5292,35 @@ class SuiteLifecycleTests(unittest.TestCase):
         )
         damaged_manifest.write_text("{}", encoding="utf-8")
 
+        candidate_suite = self.packaged_suite()
+        self.assertEqual(
+            preflight_lifecycle_state(
+                self.paths, candidate_suite, allow_payload_repair=True
+            ),
+            identity["id"],
+        )
+        state_path = self.paths.state_dir / "install.json"
+        state_before = state_path.read_bytes()
+        config_before = self.paths.config_file.read_bytes()
+        plugins_before = self.tree_snapshot(self.paths.plugin_dir)
+        activity_before = self.runtime_activity_snapshot()
         output = io.StringIO()
         with redirect_stdout(output), redirect_stderr(output):
-            self.assertEqual(self.run_cli_main_isolated(["repair", "--yes"]), 0)
-        self.assertIn("Repaired Shinigami (27 plugins)", output.getvalue())
-        repaired = json.loads(self.paths.config_file.read_text(encoding="utf-8"))
-        self.assertEqual(repaired["bar"]["layout"], expected_layout)
-        self.assertEqual(state_entry(repaired)["shinigami"], expected_settings)
-        for plugin_id in identity["pluginIds"]:
-            self.assertEqual(
-                plugin_payload_digest(self.paths.plugin_dir / plugin_id),
-                self.suite.plugins[plugin_id].payload_digest(),
+            result = self.run_packaged_cli_main_isolated(
+                ["repair", "--yes"], candidate_suite
             )
-        status_output = io.StringIO()
-        with redirect_stdout(status_output), redirect_stderr(status_output):
-            self.assertEqual(self.run_cli_main_isolated(["status"]), 0)
+        self.assertEqual(result, 1)
+        self.assertIn("refusing downgrade from 0.2.5 to 0.0.1", output.getvalue())
+        self.assertEqual(state_path.read_bytes(), state_before)
+        self.assertEqual(self.paths.config_file.read_bytes(), config_before)
+        self.assertEqual(self.tree_snapshot(self.paths.plugin_dir), plugins_before)
+        self.assertEqual(self.runtime_activity_snapshot(), activity_before)
+        self.assertEqual(
+            preflight_lifecycle_state(
+                self.paths, candidate_suite, allow_payload_repair=True
+            ),
+            identity["id"],
+        )
 
     def test_repair_still_rejects_symlinked_managed_plugin_root(self) -> None:
         self.install()

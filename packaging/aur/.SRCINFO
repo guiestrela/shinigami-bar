@@ -1,6 +1,6 @@
 pkgbase = shinigami-shell
 	pkgdesc = Transactional Shinigami desktop shell plugins for Omarchy Quattro
-	pkgver = 0.2.5
+	pkgver = 0.0.1
 	pkgrel = 1
 	url = https://github.com/HANCORE-linux/Shibumi-Shell
 	arch = any
@@ -30,7 +30,7 @@ pkgbase = shinigami-shell
 	optdepends = btop: battery panel system monitor action
 	optdepends = nvidia-utils: NVIDIA GPU telemetry
 	optdepends = git: source-checkout diagnostics and migration
-	source = shinigami-shell-0.2.5.tar.gz
-	sha256sums = 7a0ebfe9dfb9188b0a449c34acb6ba0defe978ab2d5c00f1a4de4a42baa678c1
+	source = shinigami-shell-0.0.1.tar.gz
+	sha256sums = SKIP
 
 pkgname = shinigami-shell

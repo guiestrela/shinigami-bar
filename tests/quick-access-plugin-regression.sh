@@ -9,7 +9,7 @@ source "$repo_root/tests/lib/host-diagnostics.sh"
 shinigami_load_omarchy_baseline
 omarchy_path=$OMARCHY_PATH
 quickshell_bin=${QUICKSHELL_BIN:-/usr/bin/quickshell}
-tmpdir=$(mktemp -d /tmp/shinigami-quick-access-plugin.XXXXXX)
+tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/shinigami-qa.XXXXXX")
 trap 'rm -rf -- "$tmpdir"' EXIT
 
 fail() {
@@ -232,7 +232,7 @@ service="$plugin/Service.qml"
 
 rg -q 'readonly property bool textMode: displayMode === "text"' "$widget" \
   || fail "quick access does not expose text display mode"
-for label in IDLE MEDIA THEME; do
+for label in MEDIA THEME; do
   rg -Fq "label: \"$label\"" "$widget" \
     || fail "quick-access text mode is missing action: $label"
 done
@@ -281,16 +281,17 @@ if rg -q 'bar\.(pickerService|mutateShinigamiConfig|idleInhibited)' "$plugin" \
     --glob '*.qml'; then
   fail "plugin consumes transitional bar-owned feature state"
 fi
-rg -q 'IdleInhibitor \{' "$widget" \
-  || fail "screen-local idle inhibitor is missing"
-rg -q 'window: root\.targetWindow' "$widget" \
-  || fail "idle inhibitor is not bound to its bar window"
-rg -q 'String\.fromCodePoint\(0xF06E8\)' "$widget" \
-  || fail "active idle-inhibitor glyph drifted from V1"
-rg -q 'String\.fromCodePoint\(0xF06E9\)' "$widget" \
-  || fail "inactive idle-inhibitor glyph drifted from V1"
-rg -q 'font\.pixelSize: Commons\.Style\.space\(14\)' "$widget" \
-  || fail "idle-inhibitor glyph size drifted from V1"
+for retired in IdleInhibitor idleInhibited toggleIdleInhibitor \
+    'firstPartyServiceFor("omarchy.idle")' setIdleEnabled stayAwake \
+    'label: "IDLE"'; do
+  if rg -Fq "$retired" "$widget" "$service"; then
+    fail "Quick Access still owns retired Idle Inhibitor state/control: $retired"
+  fi
+done
+rg -Fq 'root.toggleMode(button === Qt.RightButton ? "videos" : "screenshots")' "$widget" \
+  || fail "Quick Access screenshot/video actions are missing"
+rg -Fq 'root.toggleMode("theme")' "$widget" \
+  || fail "Quick Access theme action is missing"
 [[ $(rg -F -c 'typeof bar.releasePopout === "function"' "$widget") -eq 2 ]] \
   || fail "quick-access teardown does not guard both optional popout releases"
 rg -U -q 'bar\.activePopout === activeItem\n[[:space:]]*&& typeof bar\.releasePopout === "function"\)\n[[:space:]]*bar\.releasePopout\(activeItem\)' \

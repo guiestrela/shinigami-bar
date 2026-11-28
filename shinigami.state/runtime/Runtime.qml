@@ -11,7 +11,7 @@ QtObject {
   id: runtime
 
   readonly property int contractVersion: 1
-  readonly property string suiteVersion: "0.2.5"
+  readonly property string suiteVersion: "0.0.1"
   readonly property var providerIds: [
     "shinigami.state", "shinigami.control-center",
     "shinigami.reactor", "shinigami.telemetry",

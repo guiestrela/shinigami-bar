@@ -23,8 +23,8 @@ G22 to `shinigami.onedrive`, and G23 to `shinigami.indicators`. These aliases ar
 appearance-only; they are not native bar groups and do not change plugin
 activation.
 
-Quick Access exposes themes, idle inhibition, and the screenshots and videos
-pickers. Center owns the clock, calendar, weather, and update presentation.
+Quick Access exposes themes and the screenshots and videos pickers. Center owns
+the clock, calendar, weather, and update presentation.
 The suite profile declares 27 plugin roots.
 
 The calendar follows Rise's Monday-first 42-cell month grid, selection

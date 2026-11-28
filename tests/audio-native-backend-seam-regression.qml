@@ -176,7 +176,7 @@ ShellRoot {
   Audio.Service {
     id: service
     shell: serviceHost
-    manifest: ({id: "shinigami.audio", version: "0.2.5", kinds: ["service"]})
+    manifest: ({id: "shinigami.audio", version: "0.0.1", kinds: ["service"]})
     nativeBackendEnabled: true
     nativeBackendOverride: fakeBackend
   }

@@ -37,6 +37,18 @@ ShellRoot {
     return null
   }
 
+  function visibleTooltip(owner, value) {
+    if (!owner) return null
+    if ("tooltip" in owner && String(owner.tooltip) === value && owner.visible)
+      return owner
+    const children = owner.children || []
+    for (let index = 0; index < children.length; index++) {
+      const match = visibleTooltip(children[index], value)
+      if (match) return match
+    }
+    return null
+  }
+
   QtObject { id: firstScreen; property string name: "DP-1" }
   QtObject { id: replacementFirstScreen; property string name: "DP-1" }
   QtObject { id: secondScreen; property string name: "HDMI-A-1" }
@@ -95,16 +107,8 @@ ShellRoot {
   }
 
   QtObject {
-    id: fakeIdle
-    property bool stayAwake: false
-    property int setCalls: 0
-    function setIdleEnabled(enabled) { stayAwake = !enabled; setCalls++ }
-  }
-
-  QtObject {
     id: fakeShell
     property var bar: scalarBar
-    function firstPartyServiceFor(id) { return id === "omarchy.idle" ? fakeIdle : null }
     function serviceFor(pluginId) {
       if (pluginId === "shinigami.state") return fakeState
       if (pluginId === "shinigami.quick-access") return quickAccessService
@@ -589,14 +593,32 @@ ShellRoot {
             || imageWindowCarousel.sliceGap >= 0
             || imageWindowCarousel.skewOffset <= 0)
           return root.fail("Carousel did not retain its skewed-slice geometry")
-        if (!first.toggleIdleInhibitor() || !first.idleInhibited
-            || !second.idleInhibited || fakeIdle.stayAwake !== true
-            || fakeIdle.setCalls !== 1)
-          return root.fail("shared idle-inhibitor state")
-        fakeIdle.stayAwake = false
-        if (first.idleInhibited)
-          return root.fail("external Stay Awake change did not propagate")
-        fakeIdle.stayAwake = true
+        const mediaTooltip = "Left: Screenshots  Right: Videos"
+        if (first.tokens.v2Shell === true
+            || !root.visibleTooltip(first, mediaTooltip)
+            || !root.visibleTooltip(first, "Themes")
+            || root.visibleText(first, "IDLE")
+            || root.visibleTooltip(first, "Idle inhibited: ON")
+            || root.visibleTooltip(first, "Idle inhibited: OFF"))
+          return root.fail("V1 quick-access retained Idle Inhibitor or lost pickers")
+        fakeBar.visualTokens = Object.assign({}, fakeBar.visualTokens,
+          { v2Shell: true })
+        if (first.tokens.v2Shell !== true
+            || !root.visibleTooltip(first, mediaTooltip)
+            || !root.visibleTooltip(first, "Themes")
+            || root.visibleText(first, "IDLE")
+            || root.visibleTooltip(first, "Idle inhibited: ON")
+            || root.visibleTooltip(first, "Idle inhibited: OFF"))
+          return root.fail("V2 quick-access retained Idle Inhibitor or lost pickers")
+        if (!first.toggleMode("theme") || quickAccessService.mode !== "theme"
+            || !first.opened || quickAccessService.activeScreenName !== firstScreen.name)
+          return root.fail("theme picker action was removed")
+        first.close()
+        if (!first.toggleMode("screenshots")
+            || quickAccessService.mode !== "screenshots" || !first.opened
+            || quickAccessService.activeScreenName !== firstScreen.name)
+          return root.fail("screenshot picker action was removed")
+        first.close()
         first.openMode("wallpaper")
         root.phase++
         root.ticks = 0
@@ -653,7 +675,10 @@ ShellRoot {
             || !quickAccessService.shouldLoadImage(stableEntries[99], 99))
           return root.fail("picker image window grew during long navigation")
         quickAccessService.cycleStyle(1)
-        second.openMode("videos")
+        if (!second.toggleMode("videos") || !second.opened
+            || quickAccessService.mode !== "videos"
+            || quickAccessService.activeScreenName !== secondScreen.name)
+          return root.fail("video picker action was removed")
         if (quickAccessService.pickerStyle !== "carousel"
             || quickAccessService.normalizeMediaStyle("default") !== "carousel"
             || quickAccessService.normalizeMediaStyle("unknown") !== "carousel")
@@ -710,9 +735,13 @@ ShellRoot {
             || missingSlotBar.hideCalls !== 1
             || missingSlotBar.unregisterCalls !== 1
             || fakeBar.releaseCalls < 1
-            || !first.idleInhibited || !first.textMode || first.compact
+            || !first.textMode || first.compact
             || first.displayMode !== "text")
           return root.fail("widget teardown or shared state retention")
+        if (root.visibleText(first, "IDLE")
+            || !root.visibleText(first, "MEDIA")
+            || !root.visibleText(first, "THEME"))
+          return root.fail("V2 text mode lost picker actions or retained Idle Inhibitor")
         root.quickSettings = ({ displayMode: "icon" })
         root.phase++
         root.ticks = 0

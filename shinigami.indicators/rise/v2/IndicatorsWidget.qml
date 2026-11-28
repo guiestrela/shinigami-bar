@@ -27,7 +27,7 @@ Item {
     Text {
         objectName: "indicators-empty-marker"
         anchors.centerIn: parent
-        text: "⋯"
+        text: String.fromCodePoint(0xF06E9)
         textFormat: Text.PlainText
         transformOrigin: Item.Center
         rotation: 0

@@ -766,8 +766,19 @@ rg -q 'G10: \["shinigami.quick-access"\]' shinigami.bar/core/GroupRegistry.js \
   || fail "G10 is not owned by the Shinigami quick-access presentation"
 rg -q 'shinigami\.quick-access' contracts/plugin-suite-v1.json \
   || fail "Shinigami quick-access presentation is not registered"
-rg -q 'IdleInhibitor \{' shinigami.quick-access/BarWidget.qml \
-  || fail "G10 idle inhibitor is not attached to the output surface"
+for retired in IdleInhibitor idleInhibited toggleIdleInhibitor \
+    'firstPartyServiceFor("omarchy.idle")' setIdleEnabled stayAwake \
+    'label: "IDLE"'; do
+  if rg -Fq "$retired" shinigami.quick-access/BarWidget.qml \
+      shinigami.quick-access/Service.qml; then
+    fail "G10 Quick Access still owns retired Idle Inhibitor state/control: $retired"
+  fi
+done
+rg -Fq 'root.toggleMode(button === Qt.RightButton ? "videos" : "screenshots")' \
+  shinigami.quick-access/BarWidget.qml \
+  || fail "G10 screenshot/video picker action is missing"
+rg -Fq 'root.toggleMode("theme")' shinigami.quick-access/BarWidget.qml \
+  || fail "G10 theme picker action is missing"
 rg -q 'readonly property bool overlayLoaded: overlayLoader\.item !== null' \
   shinigami.quick-access/Service.qml \
   || fail "G10 picker/media controller is not process-wide"

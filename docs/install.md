@@ -6,9 +6,8 @@ Shinigami installs 27 independent plugin roots into Omarchy's normal plugin
 directory. The repository root is a suite source, not a single installable
 Omarchy plugin.
 
-Use a clean Shinigami Git checkout for source lifecycle commands. The
-[upstream release notes](../.github/release-notes/v0.2.5.md) describe the
-original project releases.
+Use a clean Shinigami Git checkout for source lifecycle commands. See the
+[current release notes](../.github/release-notes/v0.0.1.md) for the version reset.
 
 ## Requirements
 

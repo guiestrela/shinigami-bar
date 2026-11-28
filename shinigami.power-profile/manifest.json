@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.power-profile",
   "name": "Shinigami Power Profile",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami power-profile status and profile selector.",

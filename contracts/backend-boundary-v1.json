@@ -253,14 +253,7 @@
       "workerPolicy": "action-only",
       "reason": "The wallpaper service owns per-display backgrounds; theme commands remain explicit Omarchy platform actions, not state polling."
     },
-    {
-      "id": "surface-idle-inhibition",
-      "owner": "shinigami.quick-access",
-      "backendBoundary": "nativeApi",
-      "outputCardinality": "output-local",
-      "workerPolicy": "output-local-ui-only",
-      "reason": "Each visible Quick Access surface owns only its own IdleInhibitor; the toggle delegates global Stay Awake to the host-owned idle provider."
-    },
+
     {
       "id": "onedrive",
       "owner": "shinigami.onedrive",
@@ -307,7 +300,7 @@
         "hostId",
         "firstPartyService"
       ],
-      "reason": "Omarchy remains the sole global idle-policy owner; surface inhibition is separate."
+      "reason": "Omarchy owns global idle policy; Bar reads screensaver state and Status exposes Stay Awake through that provider."
     }
   ],
   "rules": [
@@ -338,7 +331,7 @@
     {"source":"shinigami.center/SystemUpdateWidget.qml","kind":"token","value":"firstPartyServiceFor","count":2,"category":"hostIntegration","owner":"shinigami.center","capability":"system-update-state"},
     {"source":"shinigami.media/BarWidget.qml","kind":"token","value":"firstPartyServiceFor","count":1,"category":"hostIntegration","owner":"shinigami.media","capability":"media"},
     {"source":"shinigami.media/Service.qml","kind":"token","value":"firstPartyServiceFor","count":1,"category":"hostIntegration","owner":"shinigami.media","capability":"media"},
-    {"source":"shinigami.quick-access/Service.qml","kind":"token","value":"firstPartyServiceFor","count":1,"category":"hostIntegration","owner":"shinigami.quick-access","capability":"surface-idle-inhibition"},
+
     {"source":"shinigami.reactor/ReactorService.qml","kind":"token","value":"firstPartyService","count":2,"category":"hostIntegration","owner":"shinigami.reactor","capability":"bar-host-routing"},
     {"source":"shinigami.reactor/ReactorService.qml","kind":"token","value":"firstPartyServiceFor","count":2,"category":"hostIntegration","owner":"shinigami.reactor","capability":"bar-host-routing"},
     {"source":"shinigami.status/BarWidget.qml","kind":"token","value":"firstPartyServiceFor","count":3,"category":"hostIntegration","owner":"shinigami.status","capability":"system-tray"},
@@ -357,11 +350,11 @@
     {"source":"shinigami.audio/BarWidget.qml","kind":"provider","target":"omarchy.audio","count":2,"category":"omarchyBackend","owner":"shinigami.audio","capability":"audio","backend":"omarchy.audio","removalStep":"Step 4A","reason":"Make Shinigami Audio the sole PipeWire state and mutation owner."},
     {"source":"shinigami.center/BarWidget.qml","kind":"provider","target":"omarchy.system-update","count":2,"category":"omarchyBackend","owner":"shinigami.center","capability":"system-update-state","backend":"omarchy.system-update","removalStep":"Step 7","reason":"Own update availability and busy/error state directly instead of loading the official detector."},
     {"source":"shinigami.status/BarWidget.qml","kind":"provider","target":"omarchy.tray","count":2,"category":"omarchyBackend","owner":"shinigami.status","capability":"system-tray","backend":"omarchy.tray","removalStep":"Step 7","reason":"Own tray rows and actions through one Shinigami SystemTray service."},
-    {"source":"shinigami.bar/Bar.qml","kind":"firstPartyService","target":"omarchy.idle","count":1,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"surface-idle-inhibition"},
+    {"source":"shinigami.bar/Bar.qml","kind":"firstPartyService","target":"omarchy.idle","count":1,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"idle-policy"},
     {"source":"shinigami.center/SystemUpdateWidget.qml","kind":"firstPartyService","target":"omarchy.system-update","count":1,"category":"omarchyBackend","owner":"shinigami.center","capability":"system-update-state","backend":"omarchy.system-update","removalStep":"Step 7","reason":"The current facade still resolves the official update service for its action and availability state."},
     {"source":"shinigami.media/BarWidget.qml","kind":"firstPartyService","target":"omarchy.media","count":1,"category":"omarchyBackend","owner":"shinigami.media","capability":"media","backend":"omarchy.media","removalStep":"Step 7","reason":"Make the Shinigami MPRIS service the sole player state and action owner."},
     {"source":"shinigami.media/Service.qml","kind":"firstPartyService","target":"omarchy.media","count":1,"category":"omarchyBackend","owner":"shinigami.media","capability":"media","backend":"omarchy.media","removalStep":"Step 7","reason":"Make the Shinigami MPRIS service the sole player state and action owner."},
-    {"source":"shinigami.quick-access/Service.qml","kind":"firstPartyService","target":"omarchy.idle","count":1,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"idle-policy"},
+
     {"source":"shinigami.reactor/ReactorService.qml","kind":"firstPartyService","target":"omarchy.media","count":1,"category":"omarchyBackend","owner":"shinigami.reactor","capability":"bar-host-routing","backend":"omarchy.media","removalStep":"Step 7","reason":"Reactor event observation must consume the future Shinigami media snapshot rather than the host service."},
     {"source":"shinigami.status/NotificationAdapter.qml","kind":"firstPartyService","target":"omarchy.notifications","count":1,"category":"hostOwnedProvider","owner":"omarchy.notifications","capability":"notifications"},
     {"source":"shinigami.status/Service.qml","kind":"firstPartyService","target":"omarchy.idle","count":1,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"idle-policy"},
@@ -383,7 +376,7 @@
     {"target":"omarchy.bluetooth","count":8,"category":"hostIntegration","owner":"shinigami.bluetooth","capability":"bluetooth"},
     {"target":"omarchy.clock","count":8,"category":"hostIntegration","owner":"shinigami.center","capability":"bar-host-routing"},
     {"target":"omarchy.dropbox","count":1,"category":"hostIntegration","owner":"quattro.host","capability":"bar-host-routing"},
-    {"target":"omarchy.idle","count":4,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"idle-policy"},
+    {"target":"omarchy.idle","count":3,"category":"hostOwnedProvider","owner":"omarchy.idle","capability":"idle-policy"},
     {"target":"omarchy.nightlight","count":2,"category":"hostIntegration","owner":"shinigami.status","capability":"bar-host-routing"},
     {"target":"omarchy.remote-session","count":2,"category":"hostIntegration","owner":"shinigami.status","capability":"bar-host-routing"},
     {"target":"omarchy.indicators","count":3,"category":"hostIntegration","owner":"quattro.host","capability":"bar-host-routing"},

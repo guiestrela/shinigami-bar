@@ -12,7 +12,7 @@ Item {
   property var manifest: null
   SuiteRuntime.Provider {
     pluginId: "shinigami.update-center"
-    implementationVersion: "0.2.5"
+    implementationVersion: "0.0.1"
     owner: root
     host: root.shell
     manifest: root.manifest

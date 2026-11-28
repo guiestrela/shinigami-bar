@@ -16,11 +16,12 @@ styles and independently configurable widgets.</p>
 ## What’s in Shinigami
 
 - **Bar styles** include V1 and the V2 Full, Fit, Dock, and Notch layouts. The Control Center manages the active style and widget placement.
+- **Launcher:** open **Control Center → Configure → Logo**, select **Icon**, and choose **Shinigami**. The transparent mark follows the launcher's icon size, alignment, and foreground color.
 - **Display Manager** combines monitor configuration, scaling, text size, and brightness. Scroll over the widget to adjust brightness.
-- **Wallpapers** opens its own per-display folder-backed wallpaper panel. Middle-click advances wallpapers across displays.
+- **Shinigami Wallpapers** opens a folder-backed wallpaper panel with per-display settings. Middle-click advances wallpapers across displays. Its V1 widget uses the same capsule styling as neighboring widgets.
 - **Center** shows the clock, date, and weather. Click the clock to switch between 12- and 24-hour formats. Click the date for the calendar and its local Caldir agenda.
 - **Indicators** show recording, Do Not Disturb, Stay Awake, night light, remote sessions, reminders, passwordless sudo, and Voxtype beside the clock.
-- **OneDrive** has its own sync-status widget and account panel. Quick Access provides themes, idle inhibition, and screenshot and video pickers.
+- **OneDrive** has its own sync-status widget and account panel. Quick Access provides themes and screenshot and video pickers.
 
 ## Interface reference
 
@@ -125,7 +126,7 @@ From the checkout root, preview and remove all managed Shinigami plugins:
 
 ## Credits
 
-**guiestrela** maintains Shinigami. The project builds on HANCORE’s Shibumi Shell and ports widgets from QS Rise. Lacuna Shell by **OldJobobo** inspired the plugin-suite structure. [Upstream release notes](.github/release-notes/v0.2.5.md) · [Lacuna Shell](https://github.com/OldJobobo/lacuna-shell)
+**guiestrela** maintains Shinigami. The project builds on HANCORE’s Shibumi Shell and ports widgets from QS Rise. Lacuna Shell by **OldJobobo** inspired the plugin-suite structure. [Shibumi Shell releases](https://github.com/HANCORE-linux/Shibumi-Shell/releases) · [Lacuna Shell](https://github.com/OldJobobo/lacuna-shell)
 
 [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md) ·
 [MIT License](LICENSE)

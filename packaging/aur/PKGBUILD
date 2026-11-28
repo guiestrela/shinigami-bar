@@ -1,7 +1,7 @@
 # Maintainer: guiestrela
 pkgname=shinigami-shell
-_upstream_version=0.2.5
-_source_sha256=7a0ebfe9dfb9188b0a449c34acb6ba0defe978ab2d5c00f1a4de4a42baa678c1
+_upstream_version=0.0.1
+_source_sha256=SKIP
 pkgver=${_upstream_version//-/}
 pkgrel=1
 pkgdesc="Transactional Shinigami desktop shell plugins for Omarchy Quattro"
