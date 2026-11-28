@@ -44,9 +44,12 @@ def check_wallpaper() -> None:
         "installed wallpaper plugin was not renamed to the Shinigami ID",
     )
     require(
-        manifest.get("name") == "Wallpapers"
-        and manifest.get("barWidget", {}).get("displayName") == "Wallpapers",
-        "wallpaper plugin visible name drifted from Wallpapers",
+        manifest.get("name") == "Shinigami Wallpapers",
+        "wallpaper plugin catalog name drifted from Shinigami Wallpapers",
+    )
+    require(
+        manifest.get("barWidget", {}).get("displayName") == "Wallpapers",
+        "wallpaper bar-widget label drifted from Wallpapers",
     )
     require(
         manifest.get("kinds") == ["bar-widget", "service"],
@@ -114,6 +117,14 @@ def check_indicators() -> None:
     widget = read(INDICATORS / "rise/components/IndicatorsWidget.qml")
     host = read(INDICATORS / "BarWidget.qml")
     service = read(STATUS)
+
+    for variant in ("v1", "v2"):
+        face = read(INDICATORS / f"rise/{variant}/IndicatorsWidget.qml")
+        marker = re.search(r'objectName: "indicators-empty-marker"\s+anchors.centerIn: parent\s+text: ([^\n]+)', face)
+        require(
+            marker is not None and marker.group(1) == "String.fromCodePoint(0xF06E9)",
+            f"{variant} Indicators empty marker must use the former inactive Quick Access glyph",
+        )
 
     expected_ids = [
         "PasswordlessSudo",

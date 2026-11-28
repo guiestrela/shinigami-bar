@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.display-manager",
   "name": "Shinigami Display Manager",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Manage displays, scaling, text size, and brightness.",

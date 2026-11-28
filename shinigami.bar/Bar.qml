@@ -28,7 +28,7 @@ Item {
   SuiteRuntime.Provider {
     id: barRuntimeProvider
     pluginId: "shinigami.bar"
-    implementationVersion: "0.2.5"
+    implementationVersion: "0.0.1"
     owner: root
     host: suiteHostShell.host
     manifest: root.manifest

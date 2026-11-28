@@ -394,7 +394,7 @@ Beta.13's single-output Omarchy 4.0.3 acceptance remains historical in
 [Get started](getting-started.md#know-the-release-boundary). The paused
 [Beta.14 validation record](development/beta14-validation.md) is not a current
 release checklist. Beta.16's published changes and limits remain in its
-[release notes](../.github/release-notes/v0.1.1-beta.16.md). Its earlier product
+[archived release notes](https://github.com/guiestrela/shinigami-bar/blob/26891a20a4dba972b10a327cba999e46cead8ee5/.github/release-notes/v0.1.1-beta.16.md). Its earlier product
 revision `30746f5` passed the complete contract and 32-generation runtime;
 those fixtures retained known teardown warnings and did not establish blanket
 hardware acceptance. Earlier readiness snapshots remain in Git history; none

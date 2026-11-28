@@ -72,7 +72,7 @@ REQUIRED_CAPABILITIES = {
     "recording-voxtype",
     "quick-access",
     "theme-background-selection",
-    "surface-idle-inhibition",
+
     "onedrive",
 }
 HOST_EXCEPTIONS = {

@@ -18,7 +18,7 @@ Item {
   SuiteRuntime.HostShell { id: suiteShell; host: root.shell }
   SuiteRuntime.Provider {
     pluginId: "shinigami.quick-access"
-    implementationVersion: "0.2.5"
+    implementationVersion: "0.0.1"
     owner: root
     host: root.shell
     manifest: root.manifest
@@ -26,7 +26,6 @@ Item {
   property bool runtimeWorkersEnabled: true
   property bool presentationEnabled: true
   readonly property var stateService: suiteShell.serviceFor("shinigami.state")
-  readonly property var idleService: suiteShell.firstPartyServiceFor("omarchy.idle")
   readonly property var bar: shell ? shell.bar : null
   // Tests may substitute an isolated screen list; production follows the
   // public reactive Quickshell screen collection.
@@ -66,9 +65,6 @@ Item {
     ? imagePickerStyle : mediaPickerStyle
   readonly property bool usingOfficialPicker: imageMode
     && imagePickerStyle === "omarchy"
-  property bool localIdleInhibited: false
-  readonly property bool idleInhibited: idleService
-    ? idleService.stayAwake === true : localIdleInhibited
   property var activeScreen: null
   property string activeScreenName: activeScreen ? String(activeScreen.name || "") : ""
   property var entries: []
@@ -176,15 +172,6 @@ Item {
     }
     return typeof stateService.setMediaPickerStyle === "function"
       ? stateService.setMediaPickerStyle(next) : false
-  }
-
-  function toggleIdleInhibitor() {
-    if (idleService && typeof idleService.setIdleEnabled === "function") {
-      idleService.setIdleEnabled(idleInhibited)
-      return idleInhibited
-    }
-    localIdleInhibited = !localIdleInhibited
-    return localIdleInhibited
   }
 
   // Rise wallpaper-manager middle-click behavior: advance the current theme's
@@ -879,8 +866,7 @@ Item {
         entries: root.entries.length,
         selected: root.selectedIndex,
         screen: root.activeScreenName,
-        loading: root.loading,
-        idleInhibited: root.idleInhibited
+        loading: root.loading
       })
     }
   }

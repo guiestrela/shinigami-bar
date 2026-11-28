@@ -140,6 +140,9 @@ jq -e --slurpfile release "$release_reference" '
 candidate_revision=$(git --no-replace-objects -C "$repo_root" rev-parse HEAD)
 [[ $candidate_revision =~ ^[0-9a-f]{40}$ ]] \
   || fail 'candidate HEAD did not resolve to a full commit identity'
+candidate_version=$(<"$repo_root/VERSION")
+[[ $candidate_version == 0.0.1 ]] \
+  || fail "runtime gate is pinned to checkout candidate 0.0.1, found $candidate_version"
 [[ $package_predecessor_revision != "$package_candidate_revision" ]] \
   || fail 'package predecessor and candidate revisions must differ'
 [[ $source_predecessor_revision != "$candidate_revision" \
@@ -172,6 +175,8 @@ for source_spec in \
       && ! -L $checkout_root/PACKAGE-METADATA.json ]] \
     || fail "source fixture exposes projected package identity: $checkout_root"
 done
+[[ $(<"$source_candidate_root/VERSION") == "$candidate_version" ]] \
+  || fail 'candidate source checkout is not the committed 0.0.1 payload; dirty worktree changes are not tested'
 
 # Package fixtures mirror the root metadata projection performed by PKGBUILD:62.
 # Preserve archived package modes below the private 0700 fixture parent.
@@ -425,6 +430,39 @@ service_generation_count() {
   awk 'NF { count++ } END { print count + 0 }' "$service_file"
 }
 
+tree_snapshot() {
+  python3 - "$1" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+if root.is_symlink() or not root.is_dir():
+    raise SystemExit(f"snapshot root is not a real directory: {root}")
+entries = [root, *root.rglob("*")]
+digest = hashlib.sha256()
+for path in sorted(entries, key=lambda item: "." if item == root else item.relative_to(root).as_posix()):
+    info = path.lstat()
+    name = "." if path == root else path.relative_to(root).as_posix()
+    separator = bytes((0,))
+    digest.update(name.encode() + separator + str(stat.S_IMODE(info.st_mode)).encode() + separator)
+    if stat.S_ISREG(info.st_mode):
+        digest.update(b"F")
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    elif stat.S_ISDIR(info.st_mode):
+        digest.update(b"D")
+    elif stat.S_ISLNK(info.st_mode):
+        digest.update(b"L" + os.readlink(path).encode())
+    else:
+        digest.update(b"O")
+print(digest.hexdigest())
+PY
+}
+
 assert_empty_directory() {
   local directory=$1
   [[ -d $directory && ! -L $directory ]] \
@@ -672,6 +710,8 @@ run_update_arm() {
   local arm predecessor_version predecessor_identity candidate_version
   local candidate_identity arm_home arm_config_home arm_state_home arm_cache_home
   local predecessor_digest candidate_digest generation_start started expected_generations=5
+  local predecessor_state_snapshot predecessor_config_snapshot predecessor_cache_snapshot
+  local refusal_output refusal_status refusal_verify generation_snapshot active_unit active_state
   case $origin in
     package)
       arm=package
@@ -727,7 +767,60 @@ run_update_arm() {
   suite_cli status >/dev/null || fail "$arm predecessor status is not clean"
 
   source_root=$candidate_src
-  suite_cli update --yes || fail "$arm candidate update command failed"
+  if [[ $origin == checkout ]]; then
+    [[ $candidate_version == 0.0.1 ]] \
+      || fail "$arm checkout downgrade fixture requires candidate 0.0.1"
+    predecessor_state_snapshot=$(tree_snapshot "$arm_state_home") \
+      || fail "$arm could not snapshot predecessor state"
+    predecessor_config_snapshot=$(tree_snapshot "$arm_config_home") \
+      || fail "$arm could not snapshot predecessor configuration and plugins"
+    predecessor_cache_snapshot=$(tree_snapshot "$arm_cache_home") \
+      || fail "$arm could not snapshot predecessor cache"
+    generation_snapshot=$(service_generation_count)
+    local -a active_units_before=()
+    mapfile -t active_units_before <"$service_file"
+    ((${#active_units_before[@]} > 0)) \
+      || fail "$arm has no active fixture shell generation before downgrade refusal"
+    active_unit=${active_units_before[$(( ${#active_units_before[@]} - 1 ))]}
+    active_state=$(timeout --kill-after=0.2s 0.8s systemctl --user --machine=@.host \
+      show "$active_unit" -p ActiveState --value 2>/dev/null) \
+      || fail "$arm could not inspect the active fixture shell before downgrade refusal"
+    [[ $active_state == active ]] \
+      || fail "$arm fixture shell was not active before downgrade refusal"
+
+    set +e
+    refusal_output=$(suite_cli update --yes 2>&1)
+    refusal_status=$?
+    set -e
+    (( refusal_status != 0 )) \
+      || fail "$arm candidate downgrade unexpectedly succeeded without authorization"
+    grep -Fq "refusing downgrade from $predecessor_version to $candidate_version" \
+      <<<"$refusal_output" \
+      || fail "$arm default refusal did not report the expected downgrade: $refusal_output"
+    [[ $(tree_snapshot "$arm_state_home") == "$predecessor_state_snapshot" ]] \
+      || fail "$arm default downgrade refusal mutated state"
+    [[ $(tree_snapshot "$arm_config_home") == "$predecessor_config_snapshot" ]] \
+      || fail "$arm default downgrade refusal mutated configuration or plugins"
+    [[ $(tree_snapshot "$arm_cache_home") == "$predecessor_cache_snapshot" ]] \
+      || fail "$arm default downgrade refusal mutated cache"
+    [[ $(service_generation_count) == "$generation_snapshot" ]] \
+      || fail "$arm default downgrade refusal restarted or replaced the fixture shell"
+    [[ $(timeout --kill-after=0.2s 0.8s systemctl --user --machine=@.host \
+      show "$active_unit" -p ActiveState --value 2>/dev/null) == active ]] \
+      || fail "$arm default downgrade refusal changed the active shell state"
+    assert_install_state "$predecessor_src" "$predecessor_version" "$origin" \
+      "$predecessor_identity"
+    refusal_verify=$(shell_ipc shinigami-suite-runtime verifyPayload "$predecessor_digest") \
+      || fail "$arm predecessor payload query failed after default downgrade refusal"
+    [[ $refusal_verify == ok ]] \
+      || fail "$arm predecessor payload identity changed after default downgrade refusal"
+    printf '%s default downgrade refusal: state/config/cache=unchanged shell=active generations=%s\n' \
+      "$arm" "$generation_snapshot"
+    suite_cli update --allow-downgrade --yes \
+      || fail "$arm explicitly authorized candidate downgrade failed"
+  else
+    suite_cli update --yes || fail "$arm candidate update command failed"
+  fi
   assert_install_state "$candidate_src" "$candidate_version" "$origin" \
     "$candidate_identity"
   candidate_digest=$(jq -r '.payloadDigest // empty' "$state_file")

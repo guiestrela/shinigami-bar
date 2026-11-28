@@ -48,7 +48,7 @@ ShellRoot {
   Media.Service {
     id: spectrum
     shell: fakeShell
-    manifest: ({id: "shinigami.media", version: "0.2.5", kinds: ["service", "bar-widget"]})
+    manifest: ({id: "shinigami.media", version: "0.0.1", kinds: ["service", "bar-widget"]})
   }
 
   Timer {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.ai",
   "name": "Shinigami AI Usage",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami Claude, Codex, and OpenCode usage presentation.",

@@ -11,7 +11,7 @@ ShellRoot {
   property var savedPanel: null
   property real originalRadius: 0
   property var audioManifest: ({id: "shinigami.audio",
-    version: "0.2.5", kinds: ["service", "bar-widget"]})
+    version: "0.0.1", kinds: ["service", "bar-widget"]})
   function check(value, message) {
     if (value) return
     console.error("audio-runtime-smoke:", message)
@@ -48,9 +48,9 @@ ShellRoot {
   SuiteRuntime.Provider {
     id: stateProvider
     pluginId: "shinigami.state"
-    implementationVersion: "0.2.5"
+    implementationVersion: "0.0.1"
     owner: tokenState
-    manifest: ({id: "shinigami.state", version: "0.2.5", kinds: ["service"]})
+    manifest: ({id: "shinigami.state", version: "0.0.1", kinds: ["service"]})
   }
   Fixtures.AudioRuntimeBackend { id: backend }
   Audio.Service { id: service; nativeBackendOverride: backend }

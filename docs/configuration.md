@@ -245,6 +245,14 @@ Do not add repository-root imports, private sibling imports, or undeclared
 state paths to installed plugins. The only cross-plugin QML imports are the
 exact, declared State runtime and passive-presentation modules.
 
+## Launcher icon
+
+In **Control Center → Configure → Logo**, select **Icon**, then choose
+**Shinigami**. The transparent mark follows the launcher's size, alignment, and
+foreground color, including the contrast color used with a custom fill. The
+logo in the **Plugins** summary is provider artwork and is not changed by this
+setting.
+
 ## Theme ownership
 
 Omarchy owns the active theme and its color files. Shinigami maps those colors to

@@ -388,6 +388,12 @@ class PackageReleaseTests(unittest.TestCase):
                 "settingsStorageVersion": 1,
                 "payloadDigest": "0f75cf10be7ba7fa5e8ac2aba91b342c1c4528f6b9744f1f9beab3556b4d95cf",
             },
+            "public-0.0.1": {
+                "suiteVersion": "0.0.1",
+                "sourceRevisions": ["package:0.0.1"],
+                "settingsStorageVersion": 1,
+                "payloadDigest": "360c003dfaf3fcfdf8289b51de635bc0fe023f615d66812b20fd219ccb8bb1cd",
+            },
         }
         self.assertEqual(set(states), set(expected))
         for identity_id, pinned in expected.items():
@@ -395,7 +401,12 @@ class PackageReleaseTests(unittest.TestCase):
                 state = states[identity_id]
                 for field, value in pinned.items():
                     self.assertEqual(state[field], value)
-                expected_roster_size = 27 if pinned["suiteVersion"] == "0.2.5" else 24
+                expected_roster_size = (
+                    27
+                    if pinned["suiteVersion"] == "0.2.5"
+                    or identity_id == "public-0.0.1"
+                    else 24
+                )
                 self.assertEqual(len(state["pluginIds"]), expected_roster_size)
                 self.assertEqual(
                     set(state["pluginDigests"]), set(state["pluginIds"])
@@ -418,6 +429,7 @@ class PackageReleaseTests(unittest.TestCase):
         current_roster = set(Suite.load(ROOT).plugins)
         self.assertFalse(archived_roster.intersection(current_roster))
         self.assertEqual(set(states["public-0.2.5"]["pluginIds"]), current_roster)
+        self.assertEqual(set(states["public-0.0.1"]["pluginIds"]), current_roster)
         self.assertNotIn(
             "package:0.1.1-beta.12",
             states["public-beta.12"]["sourceRevisions"],

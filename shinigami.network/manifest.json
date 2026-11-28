@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.network",
   "name": "Shinigami Network",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Native Shinigami NetworkManager ownership, telemetry, actions, QR, and speed testing.",

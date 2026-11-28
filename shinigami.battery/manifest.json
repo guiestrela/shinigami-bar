@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.battery",
   "name": "Shinigami Battery",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami battery status and detailed battery panel.",

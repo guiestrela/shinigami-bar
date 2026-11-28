@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.memory",
   "name": "Shinigami Memory",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami memory widget and detailed memory panel.",

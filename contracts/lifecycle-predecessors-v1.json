@@ -2094,6 +2094,73 @@
         "c11aa04e499266a6f3e19ccc61077e8337be0e59"
       ],
       "suiteVersion": "0.2.5"
+    },
+    {
+      "id": "public-0.0.1",
+      "payloadDigest": "360c003dfaf3fcfdf8289b51de635bc0fe023f615d66812b20fd219ccb8bb1cd",
+      "pluginDigests": {
+        "shinigami.ai": "9997c4ecddba69cd41f5b84b1556959fbd91a4e08fc8aea6c39c04035feacb80",
+        "shinigami.audio": "4855614d186cc2ed363f6c86fd8c46ef1c13aa314d4d04d25b036d67fa133831",
+        "shinigami.bar": "c8bd793dbd1330f4aad57862d0f9092145ed905ceb99954fd66c2fcefb19fd7d",
+        "shinigami.battery": "30b9a49ade87b5f67405115c0ffb0acbb2ff346098414a0527b7774ea87e2589",
+        "shinigami.bluetooth": "a9babfba0b91f8540a22781ce67f41f12717e692b386738f5664779586fdee53",
+        "shinigami.center": "5f047413789336783276dd01321d4187ba86dd8d16f0c178051a2f35b50c1366",
+        "shinigami.control-center": "8a12ed551d35840ef956dab29a346f4475ee16567b422dfc7c403a9187b7f547",
+        "shinigami.cpu": "e12b0d916fe222616cdc775f63394f99e8a7dd7e6f2f088af81f8c291d3841c0",
+        "shinigami.display-manager": "da1305845b6cbd8b7ea2c48140d6b5a2983fdcbc1191d02fba7af9a11e7b70d8",
+        "shinigami.gpu": "91b2c6d1eee51d01ddb1b7ef317cf21b473d3c85b3b3bf15c5994763d487c1cd",
+        "shinigami.indicators": "0792c4e815ad3037c0f8a4c424b508ac23bd7b810a435036e29195f5f2622536",
+        "shinigami.media": "331df7f88fca239f8552ad61e825ab4c0f8d1891ed0ca40568344f014f791fbc",
+        "shinigami.memory": "332bde0f7a971c7459bde3bc36f718e55ca49babf13e9f39670d7eed00f7e714",
+        "shinigami.network": "d79ec61b8f087bbd1bd385c1c1d5e82e4e482fcadea10b6f169e31d8c0cc3f17",
+        "shinigami.onedrive": "925d920ffc464de05f1675196a0594ce27f754c86fa402789a405a4f792a3fce",
+        "shinigami.power-profile": "334b5ae51218d79292e43887436159b475189c9b602471daefd2b62277a2b9c7",
+        "shinigami.power-state": "bc2189ba0f78cf081500f5f3ebfbea48bf0bb34df082f9de6de5ae9cfce0969b",
+        "shinigami.quick-access": "34e3c63467b5437708f4898f5d826123b48b43e871aca8b86de1fbe9d9bed873",
+        "shinigami.reactor": "873de5c816f439788dfd9b452d11bfb7a140db18050ef459d05941c0df64fad9",
+        "shinigami.state": "7bebf9ca7395b0559c2569dd2da4a7736c8425f0ee522ea888bb44b1aa223f34",
+        "shinigami.status": "5773e8b55582bdec4bcd367c2ca67a4b19ff18868c740a4520c5a9febfe3f02e",
+        "shinigami.storage": "b84fc39747d726de31a639cf1f5e934180287ce678c3164e26d0dd3b28203f5d",
+        "shinigami.telemetry": "7aa6e7b96381a8e684f43a502cfa855881f26287596cbd261e2b653d587fa5ed",
+        "shinigami.temperature": "38b0bdcd321a53b20e302dcf11e85c660cdfe90e9a569e65c792769ddb4b2d67",
+        "shinigami.update-center": "d8378082bfaeaabcaa98ac78b559b36f5d0aad161eb6ccf98fe6544093d20a89",
+        "shinigami.wallpaper-manager": "12f3ba39ca3fb00c808ae68b63802838273083bb67cae8f1600b3d1cdf506926",
+        "shinigami.workspaces": "af3d52af824a7f27694070c60f532334d22f7643e4f728c007c812e2565cc640"
+      },
+      "pluginIds": [
+        "shinigami.bar",
+        "shinigami.state",
+        "shinigami.control-center",
+        "shinigami.reactor",
+        "shinigami.telemetry",
+        "shinigami.power-state",
+        "shinigami.workspaces",
+        "shinigami.update-center",
+        "shinigami.status",
+        "shinigami.memory",
+        "shinigami.cpu",
+        "shinigami.audio",
+        "shinigami.ai",
+        "shinigami.center",
+        "shinigami.media",
+        "shinigami.quick-access",
+        "shinigami.onedrive",
+        "shinigami.network",
+        "shinigami.battery",
+        "shinigami.display-manager",
+        "shinigami.power-profile",
+        "shinigami.bluetooth",
+        "shinigami.temperature",
+        "shinigami.gpu",
+        "shinigami.storage",
+        "shinigami.wallpaper-manager",
+        "shinigami.indicators"
+      ],
+      "settingsStorageVersion": 1,
+      "sourceRevisions": [
+        "package:0.0.1"
+      ],
+      "suiteVersion": "0.0.1"
     }
   ]
 }

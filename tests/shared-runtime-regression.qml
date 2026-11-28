@@ -54,7 +54,7 @@ ShellRoot {
     id: state
     shell: stateApi
     omarchyPath: Quickshell.env("OMARCHY_PATH")
-    manifest: ({id: "shinigami.state", version: "0.2.5", kinds: ["service"]})
+    manifest: ({id: "shinigami.state", version: "0.0.1", kinds: ["service"]})
   }
   BarProbe.Marker { id: markerBar }
   Item {
@@ -66,10 +66,10 @@ ShellRoot {
     Shared.Provider {
       id: barProvider
       pluginId: "shinigami.bar"
-      implementationVersion: "0.2.5"
+      implementationVersion: "0.0.1"
       owner: barOwner
       host: barOwner.injectedHost
-      manifest: ({id: "shinigami.bar", version: "0.2.5", kinds: ["bar"]})
+      manifest: ({id: "shinigami.bar", version: "0.0.1", kinds: ["bar"]})
     }
   }
   Shared.HostShell { id: client; host: stateApi }
@@ -82,7 +82,7 @@ ShellRoot {
       property int value: 0
       Shared.Provider {
         pluginId: "shinigami.audio"
-        implementationVersion: "0.2.5"
+        implementationVersion: "0.0.1"
         owner: peer
         host: peer.injectedHost
         manifest: peer.injectedManifest
@@ -152,7 +152,7 @@ ShellRoot {
       check(left.state === null && right.state === null && !state.ready && !state.writePending,
         "version drift retained State authority or queued intent")
       check(!state.setGroupSetting("G4", "compact", true), "revoked State accepted intent")
-      state.manifest = {id: "shinigami.state", version: "0.2.5", kinds: ["service"]}
+      state.manifest = {id: "shinigami.state", version: "0.0.1", kinds: ["service"]}
       check(left.state === state && Shared.Runtime._selected("shinigami.state") !== oldLease,
         "State did not register a new lifetime")
       Shared.Runtime.unregisterProvider(oldLease)
@@ -161,10 +161,10 @@ ShellRoot {
       check(first !== null && client.serviceFor("shinigami.audio") === null,
         "parentless service published before injection")
       first.injectedHost = audioApi
-      first.injectedManifest = {id: "shinigami.audio", version: "0.2.5", kinds: ["service"]}
+      first.injectedManifest = {id: "shinigami.audio", version: "0.0.1", kinds: ["service"]}
       check(client.serviceFor("shinigami.audio") === first, "provider registration failed")
       second = serviceFactory.createObject(null, {injectedHost: audioApi,
-        injectedManifest: {id: "shinigami.audio", version: "0.2.5", kinds: ["service"]}})
+        injectedManifest: {id: "shinigami.audio", version: "0.0.1", kinds: ["service"]}})
       check(client.serviceFor("shinigami.audio") === null,
         "duplicate provider was last-writer-wins: second=" + JSON.stringify({
           manifest: second.injectedManifest, kindsArray: Array.isArray(second.injectedManifest.kinds),

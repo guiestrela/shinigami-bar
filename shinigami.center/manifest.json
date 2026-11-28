@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "shinigami.center",
   "name": "Shinigami Center",
-  "version": "0.2.5",
+  "version": "0.0.1",
   "author": "guiestrela",
   "license": "MIT",
   "description": "Shinigami clock, calendar, weather, status, and update center.",

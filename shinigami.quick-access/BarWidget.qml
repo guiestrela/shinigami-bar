@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import Quickshell
-import Quickshell.Wayland
 import qs.Commons as Commons
 import "../shinigami.state/lib/presentation" as Presentation
 
@@ -41,8 +40,6 @@ Item {
     && (picker.mode !== "wallpaper" || ownsWallpaperRequest)
     && picker.activeScreenName === (targetScreen ? String(targetScreen.name || "") : "")
   readonly property bool panelLoaded: opened
-  readonly property bool idleInhibited: picker
-    ? picker.idleInhibited === true : false
 
   visible: bar !== null && tokens !== null && picker !== null
   implicitWidth: visible ? actionRow.implicitWidth + 2 * tokens.pillPaddingX : 0
@@ -80,10 +77,6 @@ Item {
   function open() { return openMode("theme") }
   function close() { if (opened) picker.close() }
   function toggle() { return toggleMode("theme") }
-  function toggleIdleInhibitor() {
-    return picker && typeof picker.toggleIdleInhibitor === "function"
-      ? picker.toggleIdleInhibitor() : false
-  }
   function closeForPopoutSwitch() { close() }
 
   function childPanelWidget(pluginId) {
@@ -104,11 +97,6 @@ Item {
     if (opened) close()
   }
 
-  IdleInhibitor {
-    window: root.targetWindow
-    enabled: root.targetWindow !== null && root.idleInhibited
-  }
-
   Presentation.PillSurface {
     tokenSource: root.tokens
     settings: root.settings
@@ -127,17 +115,6 @@ Item {
 
     ActionIcon {
       visible: root.displayMode === "full"
-      icon: root.idleInhibited
-        ? String.fromCodePoint(0xF06E8) : String.fromCodePoint(0xF06E9)
-      nerdGlyph: true
-      inactiveOpacity: 0.45
-      active: root.idleInhibited
-      tooltip: active ? "Idle inhibited: ON" : "Idle inhibited: OFF"
-      onTriggered: root.toggleIdleInhibitor()
-    }
-
-    ActionIcon {
-      visible: root.displayMode === "full"
       icon: "collections"
       active: root.opened && root.picker.mediaMode
       tooltip: "Left: Screenshots  Right: Videos"
@@ -152,14 +129,6 @@ Item {
       active: root.opened && root.picker.mode === "theme"
       tooltip: "Themes"
       onTriggered: root.toggleMode("theme")
-    }
-
-    TextAction {
-      visible: root.textMode
-      label: "IDLE"
-      active: root.idleInhibited
-      tooltip: active ? "Idle inhibited: ON" : "Idle inhibited: OFF"
-      onTriggered: root.toggleIdleInhibitor()
     }
 
     TextAction {
@@ -186,11 +155,9 @@ Item {
     required property string icon
     required property bool active
     required property string tooltip
-    property bool nerdGlyph: false
-    property real inactiveOpacity: 0.62
     readonly property color iconColor: active ? root.widgetInk
       : Qt.rgba(root.widgetInk.r, root.widgetInk.g,
-          root.widgetInk.b, inactiveOpacity)
+          root.widgetInk.b, 0.62)
     signal triggered(int button)
 
     implicitWidth: Commons.Style.space(22)
@@ -198,24 +165,12 @@ Item {
 
     Presentation.BarGlyph {
       anchors.centerIn: parent
-      visible: !action.nerdGlyph
       text: action.icon
       optical: !root.bar || !root.bar.vertical
       color: action.iconColor
       font.pixelSize: 14
       font.weight: Font.Medium
       fill: action.active ? 1 : 0
-      Behavior on color { ColorAnimation { duration: 150 } }
-    }
-
-    Presentation.BarGlyph {
-      anchors.centerIn: parent
-      visible: action.nerdGlyph
-      optical: !root.bar || !root.bar.vertical
-      text: action.icon
-      color: action.iconColor
-      font.family: root.bar ? root.bar.fontFamily : Commons.Style.font.family
-      font.pixelSize: Commons.Style.space(14)
       Behavior on color { ColorAnimation { duration: 150 } }
     }
 
